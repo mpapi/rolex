@@ -5,7 +5,7 @@ locale.setlocale(locale.LC_ALL, "")
 
 from contextlib import contextmanager
 from difflib import SequenceMatcher
-from Queue import Queue
+from Queue import Queue, Empty
 from subprocess import check_output
 from threading import Event, Thread
 import curses
@@ -692,7 +692,11 @@ def main():
         curses.doupdate()
 
         while True:
-            tag, data = queue.get()
+            try:
+                tag, data = queue.get(timeout=0.1)
+            except Empty:
+                continue
+
             if tag == 'key':
                 if KEYBINDINGS.get(data, lambda w, k: None)(watch, data):
                     break
@@ -711,4 +715,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
