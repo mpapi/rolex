@@ -32,6 +32,7 @@ class Command(object):
         self.last_update = time.ctime()
         self.runner = None
         self.terminated = False
+        self.scheduled_run = Event()
 
         self.friendly_time = False
 
@@ -77,6 +78,18 @@ class Command(object):
         """
         self.mark = None
 
+    def trigger_rerun(self, reset_schedule=False):
+        """
+        Signals for the command to be run again more or less immediately.
+
+        If `reset_schedule` is True, the next command won't run again for
+        approximately `self.period` seconds. Otherwise, next run will occur
+        when it normally would have.
+        """
+        self.scheduled_run.set()
+        if reset_schedule:
+            self.next_run = time.time()
+
     @property
     def diff_base_output(self):
         """
@@ -104,14 +117,13 @@ class Command(object):
 
         This is intended to run in a separate greenlet/thread/process.
         """
-        next_run = time.time() - 1
+        self.trigger_rerun(reset_schedule=True)
         while True:
             if self.terminated:
                 break
             now = time.time()
-            if now > next_run:
-                # TODO set a wait timeout on an event, so we can cancel it on
-                # period change
+            result = self.scheduled_run.wait(self.next_run - now)
+            if result or self.next_run - now > 0:
                 output = check_output(self.command, shell=True)
                 self.last_update = time.ctime()
                 # TODO diff against last, store time and data
@@ -120,9 +132,11 @@ class Command(object):
                     self.content.pop(0)
 
                 queue.put(('output', (self, output)))
-                while next_run < now:
-                    next_run += max(1, self.period)
-            time.sleep(0.05)
+                self.scheduled_run.clear()
+
+            while self.next_run < now:
+                self.next_run += max(1, self.period)
+
             self.running.wait()
 
 
@@ -554,6 +568,7 @@ def cmd_edit_command(watch, key):
     """
     pane, command = watch.selected
     command.command = watch.screen.prompt_user('Command: ', command.command)
+    command.trigger_rerun(reset_schedule=True)
 
 
 def cmd_add_command(watch, key):
@@ -590,6 +605,18 @@ def cmd_mark_diff(watch, key):
     pane.commit()
 
 
+def cmd_force_run(with_reset):
+    """
+    Forces the command in the selected pane to run immediately. This does not
+    alter the time at which the next scheduled run of the command was supposed
+    to occur.
+    """
+    def _cmd(watch, key):
+        _, command = watch.selected
+        command.trigger_rerun(reset_schedule=with_reset)
+    return _cmd
+
+
 # Curses color config.
 COLORS = [
     (3, 0),
@@ -623,6 +650,8 @@ KEYBINDINGS = {
     ord('c'): cmd_edit_command,
     ord('a'): cmd_add_command,
     ord('k'): cmd_kill_command,
+    ord('f'): cmd_force_run(False),
+    ord('F'): cmd_force_run(True),
 }
 
 
