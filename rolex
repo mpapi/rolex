@@ -6,10 +6,11 @@ locale.setlocale(locale.LC_ALL, "")
 from contextlib import contextmanager
 from difflib import SequenceMatcher
 from Queue import Queue, Empty
-from subprocess import check_output
+from subprocess import check_output, CalledProcessError
 from threading import Event, Thread
 import curses
 import curses.textpad
+import os
 import re
 import sys
 import time
@@ -124,7 +125,12 @@ class Command(object):
             now = time.time()
             result = self.scheduled_run.wait(self.next_run - now)
             if result or self.next_run - now > 0:
-                output = check_output(self.command, shell=True)
+                try:
+                    with open(os.devnull, 'w') as devnull:
+                        output = check_output(self.command,
+                                              stderr=devnull, shell=True)
+                except CalledProcessError, e:
+                    output = "Error running '%s':\n\n%s" % (self.command, e)
                 self.last_update = time.ctime()
                 # TODO diff against last, store time and data
                 self.content.append(output)
