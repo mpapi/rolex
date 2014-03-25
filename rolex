@@ -1,0 +1,705 @@
+#!/usr/bin/env python
+
+from gevent import monkey
+monkey.patch_all()
+
+import locale
+locale.setlocale(locale.LC_ALL, "")
+
+from contextlib import contextmanager
+import curses
+import curses.textpad
+from difflib import SequenceMatcher
+import re
+import sys
+import time
+
+import gevent
+from gevent.subprocess import check_output
+from gevent.event import Event
+from gevent.queue import Queue
+
+class Command(object):
+    """
+    A shell command that `rolex` periodically runs. Configures the way the
+    command is run, and also tracks some state, like the output of the last n
+    runs of the command.
+    """
+    def __init__(self, command, period, running):
+        self.command = command
+        self.selected = False
+        self.period = period
+        self.running = running
+        self.content = []
+        self.mark = None
+        self.started = time.ctime()
+        self.last_update = time.ctime()
+        self.greenlet = None
+
+        self.friendly_time = False
+
+    def start_runner(self, queue):
+        """
+        Starts a greenlet that periodically runs the command.
+
+        `queue` is the queue into which the command's output is placed after
+        each run.
+        """
+        self.greenlet = gevent.spawn(self._run, queue)
+
+    def stop_runner(self):
+        """
+        Stops the greenlet that runs the command, as when the user kills the
+        pane that's showing this command. If there isn't a greenlet currently
+        running, this does nothing.
+        """
+        if self.greenlet:
+            self.greenlet.kill()
+
+    def change_period(self, amount):
+        """
+        Changes the command's period by `amount`. (A positive amount makes the
+        command run less frequently.)
+
+        It is not possible to have a period shorter than one second.
+        """
+        self.period = max(1, self.period + amount)
+
+    def set_diff_mark(self):
+        """
+        Sets the output of the command's last run as the "mark" for diffing
+        against, i.e., the UI will show diffs against the point in time just
+        before this function was called.
+        """
+        if self.content:
+            self.mark = self.content[-1].splitlines()
+
+    def clear_diff_mark(self):
+        """
+        Clears the diff mark set by `set_diff_mark`. If there isn't a diff
+        mark, this does nothing.
+        """
+        self.mark = None
+
+    @property
+    def diff_base_output(self):
+        """
+        The output, as a list of strings, to diff against.
+
+        If a diff mark has been set, returns that. Otherwise, returns the
+        output from two runs ago (to compare against the most recent output),
+        or None if there isn't enough output for that.
+        """
+        if self.mark is not None:
+            return self.mark
+        if len(self.content) < 2:
+            return None
+        return self.content[-2].splitlines()
+
+    def last_update_text(self, use_since=False):
+        """
+        Returns a string representation of the last time a command was run.
+        """
+        return self.last_update
+
+    def _run(self, queue):
+        """
+        Periodically runs the command (forever), adding its output to `queue`.
+
+        This is intended to run in a separate greenlet/thread/process.
+        """
+        next_run = time.time() - 1
+        while True:
+            now = time.time()
+            if now > next_run:
+                # TODO set a wait timeout on an event, so we can cancel it on
+                # period change
+                output = check_output(self.command, shell=True)
+                self.last_update = time.ctime()
+                # TODO diff against last, store time and data
+                self.content.append(output)
+                if len(self.content) > 60:
+                    self.content.pop(0)
+
+                queue.put(('output', (self, output)))
+                while next_run < now:
+                    next_run += max(1, self.period)
+            gevent.sleep(0.05)
+            self.running.wait()
+
+
+class Pane(object):
+    """
+    A fixed slice of the UI, to which information about a `Command` can be
+    rendered.
+
+    This manages a curses pad, rendering to that off-screen and then drawing
+    the pad into the correct part of the screen.
+    """
+    def __init__(self, index, height, width):
+        """
+        - `index` is 0 for the topmost pane on the screen, 1 for the one below
+          that, etc.
+        - `height` is the height of the pane, in terminal rows
+        - `width` is the width of the pane/screen (panes are currently
+          full-width, so these are the same), in terminal columns
+        """
+        self.index = index
+        self.show_diffs = False
+        self.pattern = None
+
+        self.width = width
+
+        self.resize(height)
+
+    def resize(self, height):
+        """
+        Adjusts the height of the pane to be `height` terminal rows.
+        """
+        self.height = height
+        self.pad = curses.newpad(height, self.width)
+
+    def draw_header(self, command, use_unicode=True, use_since=False):
+        """
+        Renders the header for the command to the internal curses pad.
+
+        - `command` is the Command object to show in this pane.
+        - `use_unicode` determines whether Unicode characters can be used to
+          help draw the header
+        - `use_since` determines whether the header timestamp is shown in
+          absolute time or relative time
+        """
+        # Draw a full-width separator.
+        separator = u'\u2500' if use_unicode else '-'
+        self.pad.addstr(0, 0,
+                        (separator * self.width).encode('utf-8'),
+                        curses.color_pair(2))
+
+        # Write the command's period.
+        pos = 2  # margin
+        self.pad.addstr(0, pos, str(command.period),
+                        curses.color_pair(1) | curses.A_BOLD)
+        pos += len(str(command.period)) + 1
+
+        # Attributes for the command depend on whether it's running and/or
+        # selected.
+        attrs = curses.color_pair(3)
+        if not command.running.is_set():
+            attrs = curses.color_pair(4) | curses.A_BOLD
+        if command.selected:
+            attrs |= curses.A_UNDERLINE
+
+        # Write the command.
+        self.pad.addstr(0, pos, command.command, attrs)
+        pos += len(command.command) + 1
+
+        # Add markers for other states.
+        if self.show_diffs:
+            diff_str = 'diff last' if not command.mark else 'diff mark'
+            self.pad.addstr(0, pos, diff_str, curses.color_pair(1))
+        elif self.pattern:
+            self.pad.addstr(0, pos, self.pattern, curses.color_pair(1))
+
+        # Write the command's last run time, right-aligned.
+        last_update = command.last_update_text(use_since=use_since)
+        self.pad.addstr(0, self.width - len(last_update) - 1, last_update)
+
+    def draw_wait(self):
+        """
+        Draws a "waiting" banner in the center of the pane.
+        """
+        output = [''] * (self.height / 2 - 2)
+        output.append('Waiting for output...'.center(self.width))
+        self.draw_output(output)
+
+    def draw_output(self, output, diff_base=None):
+        """
+        Draws the output of a command, as a list of strings, to the pane.
+
+        If `diff_base` (a list of strings) is given, the differences between
+        `output` and `diff_base` are highlighted.
+        """
+        # Clear the pane, except the header.
+        self.pad.move(1, 0)
+        self.pad.clrtobot()
+
+        for lineno, line in enumerate(output[-(self.height - 2):]):
+            # Write the line, making sure it can fit in the pane.
+            truncline = line.rstrip()[:self.width - 1]
+            self.pad.addstr(2 + lineno, 1, truncline)
+
+            # Highlight diffs if we're in diff mode and have something to diff
+            # against.
+            if self.show_diffs and diff_base and lineno < len(diff_base):
+                diffline = diff_base[lineno][:self.width - 1]
+                for pos, substr in get_diffs(diffline, truncline):
+                    self.pad.addstr(2 + lineno, 1 + pos, substr,
+                                    curses.color_pair(5) | curses.A_BOLD)
+
+            # Highlight pattern matches if we have a pattern.
+            elif self.pattern:
+                for pos, substr in get_matches(self.pattern, truncline):
+                    self.pad.addstr(2 + lineno, 1 + pos, substr,
+                                    curses.color_pair(5) | curses.A_BOLD)
+
+    def commit(self):
+        """
+        Writes the changes to the pad out to the window, but doesn't redraw.
+        """
+        self.pad.noutrefresh(0, 0,
+                             self.index * self.height, 0,
+                             (self.index + 1) * self.height - 2,
+                             self.width)
+
+
+def get_matches(pattern, line):
+    """
+    Generates pairs of (column, matching substring) each match of the regular
+    expression `pattern` in the string `line`.
+    """
+    for match in re.finditer(pattern, line):
+        yield match.start(), line[match.start():match.end()]
+
+
+def get_diffs(old_line, new_line):
+    """
+    Generates pairs of (column, different substring) for each diff between the
+    strings `old_line` and `new_line`.
+    """
+    sm = SequenceMatcher(a=old_line, b=new_line)
+    for tag, _, _, j1, j2 in sm.get_opcodes():
+        if tag not in ('replace', 'insert'):
+            continue
+        yield j1, new_line[j1:j2]
+
+
+class Screen(object):
+    """
+    Provides some high level functions around a curses screen.
+    """
+
+    @staticmethod
+    @contextmanager
+    def configure(colors):
+        """
+        A context manager that sets up a screen, yields it, and cleans the
+        screen up when finished (ensuring that the terminal is usable again).
+
+        Like `curses.wrapper` but a bit more tailored.
+
+        - `colors` is a list of (foreground color, background color) pairs
+        """
+        screen = curses.initscr()
+        curses.start_color()
+        for i, (fg, bg) in enumerate(colors, start=1):
+            curses.init_pair(i, fg, bg)
+
+        curses.noecho()
+        curses.cbreak()
+        curses.curs_set(0)
+        screen.keypad(1)
+        try:
+            yield Screen(screen)
+        finally:
+            screen.keypad(0)
+            curses.nocbreak()
+            curses.echo()
+            curses.endwin()
+
+    def __init__(self, screen):
+        """
+        - `screen` is a curses screen, as from `curses.initscr`
+        """
+        self._screen = screen
+        self.update_size()
+
+    def get_keys(self, queue):
+        """
+        Reads keystrokes from the screen (forever), and adds them to `queue`.
+
+        This is intended to run in a separate greenlet/thread/process.
+        """
+        self._screen.nodelay(1)
+        while True:
+            ch = self._screen.getch()
+            if ch == -1:
+                gevent.sleep(0.1)
+            else:
+                queue.put(('key', ch))
+
+    def update_size(self):
+        """
+        Updates the size of the terminal in which `rolex` is running.
+        """
+        self.height, self.width = self._screen.getmaxyx()
+
+    def prompt_user(self, prompt_string, default_value):
+        """
+        Prompt the user with a bar at the bottom of the screen.
+
+        `prompt_string` is the uneditable string displayed at the left-hand
+        side of the bar, and `default_value` (if given) is the editable string
+        that populates the bar.
+        """
+        self._screen.addstr(self.height - 1, 0, prompt_string)
+        self._screen.refresh()
+
+        # Create a window at the bottom of the screen, set the default value,
+        # wrap it in a Textbox.
+        textwin = curses.newwin(1, self.width, self.height - 1,
+                                len(prompt_string))
+        textwin.addstr(0, 0, default_value or '')
+        textbox = curses.textpad.Textbox(textwin)
+
+        curses.curs_set(1)
+        try:
+            result = textbox.edit().strip()
+        finally:
+            curses.curs_set(0)
+
+        # Erase the bar.
+        self._screen.move(self.height - 1, 0)
+        self._screen.clrtobot()
+
+        return result
+
+    def clear_and_refresh(self):
+        """
+        Clear the screen immediately.
+        """
+        self._screen.clear()
+        self._screen.refresh()
+
+
+class Watch(object):
+    """
+    Ties together a screen, list of commands, and a list of panes.
+    """
+    def __init__(self, screen, running, commands, queue):
+        """
+        - `screen` is a `Screen` object
+        - `running` is an `Event` that can be used to pause commands
+        - `commands` is an initial list of `Command` objects to run
+        - `queue` is a queue that the screen and commands will use to send key
+          presses and command output
+        """
+        self.screen = screen
+        self.commands = commands
+        self.queue = queue
+        self.running = running
+
+        pane_height = self.screen.height / len(commands)
+        self.panes = [Pane(i, pane_height, self.screen.width)
+                      for i in range(len(commands))]
+
+        # This maps pane index to the command to show in that pane, so we can
+        # rearrange them.
+        self.pane_map = dict(enumerate(self.commands))
+
+    def toggle_running(self):
+        """
+        Toggles the `running` flag, pausing or unpausing command runs
+        accordingly.
+        """
+        if self.running.is_set():
+            self.running.clear()
+        else:
+            self.running.set()
+
+    def set_selected_from_key(self, key):
+        """
+        Sets the selected pane from the keycode `key`.
+
+        So, if `key` is the keycode for "2", the command currently in the
+        second pane from the top is selected (and all others are deselected).
+        """
+        for i, c in self.pane_map.iteritems():
+            c.selected = i == int(chr(key)) - 1
+
+    def add_pane_and_command(self, command, period):
+        """
+        Adds `command` to run every `period` seconds in a new pane.
+        """
+        pane = Pane(len(self.commands), 1, self.screen.width)
+        self.panes.append(pane)
+
+        command = Command(command, period, self.running)
+        command.start_runner(self.queue)
+        self.commands.append(command)
+        self.pane_map = dict(enumerate(self.commands))
+
+    def remove_pane(self, pane):
+        """
+        Removes the Pane object `pane`, so that it no longer renders.
+        """
+        self.panes.remove(pane)
+        for i, p in enumerate(self.panes):
+            p.index = i
+
+    def remove_command(self, command):
+        """
+        Removes the Command object `command`, so that it no longer runs.
+        """
+        command.stop_runner()
+        self.commands.remove(command)
+        if not any(c.selected for c in self.commands):
+            self.commands[0].selected = True
+        self.pane_map = dict(enumerate(self.commands))
+
+    def adjust_pane_sizes(self):
+        """
+        Resize all panes so that they're all evenly about (screen height / # of
+        commands) rows high.
+        """
+        self.screen.update_size()
+        self.screen.clear_and_refresh()
+
+        new_height = self.screen.height / len(self.commands)
+        for pane, command in self:
+            pane.resize(new_height)
+            pane.draw_header(command)
+            if not command.content:
+                pane.draw_wait()
+            else:
+                pane.draw_output(command.content[-1].splitlines())
+            pane.commit()
+
+    def __iter__(self):
+        """
+        Generate a list of pairs of (Pane object, Command object for the
+        command that runs in that pane).
+        """
+        for i, command in sorted(self.pane_map.iteritems()):
+            yield self.panes[i], command
+
+    def pane_for_command(self, command):
+        """
+        Looks up the Pane object to which the Command `command` currently
+        renders.
+        """
+        for i, c in self.pane_map.iteritems():
+            if c == command:
+                return self.panes[i]
+        return None
+
+    @property
+    def selected(self):
+        """
+        The pair (Pane object for currently selected pane, Command object for
+        command that runs in that pane), or None.
+        """
+        for pane, command in self:
+            if command.selected:
+                return pane, command
+
+
+def cmd_select(watch, key):
+    """
+    Sets the selected command given the keycode `key` (where "1" selects the
+    command in the topmost pane, "2" selects the one below that, etc.).
+    """
+    watch.set_selected_from_key(key)
+    for pane, command in watch:
+        pane.draw_header(command)
+        pane.commit()
+
+
+def cmd_toggle_pause(watch, key):
+    """
+    Toggles the "paused" flag for all commands.
+    """
+    watch.toggle_running()
+    for pane, command in watch:
+        pane.draw_header(command)
+        pane.commit()
+
+
+def cmd_period_change(amount):
+    """
+    Updates the period of execution for the selection command,
+    adjusting it by `amount`.
+    """
+    def _cmd(watch, key):
+        pane, command = watch.selected
+        command.change_period(amount)
+        pane.draw_header(command)
+        pane.commit()
+    return _cmd
+
+
+def cmd_toggle_diffs(watch, key):
+    """
+    Toggles diff mode for the command in the selected pane. If diffs of any
+    kind are enabled (diff last or diff mark), they are disabled; otherwise,
+    diff last is enabled.
+    """
+    pane, command = watch.selected
+    command.clear_diff_mark()
+    pane.show_diffs = not pane.show_diffs
+    pane.draw_header(command)
+    pane.commit()
+
+
+def cmd_edit_pattern(watch, key):
+    """
+    Opens a prompt to set or edit a regular expression for highlighting the
+    output of the selected pane's command.
+    """
+    pane, command = watch.selected
+    new_pattern = watch.screen.prompt_user('Pattern: ', pane.pattern or '')
+    pane.pattern = new_pattern or None
+
+
+def cmd_edit_command(watch, key):
+    """
+    Opens a prompt to set or edit the command that runs in the selected pane.
+    """
+    pane, command = watch.selected
+    command.command = watch.screen.prompt_user('Command: ', command.command)
+
+
+def cmd_add_command(watch, key):
+    """
+    Opens a series of prompts to start periodically running a new command in a
+    new pane.
+    """
+    command = watch.screen.prompt_user('Run: ', '')
+    period = int(watch.screen.prompt_user('Period: ', ''))
+    watch.add_pane_and_command(command, period)
+    watch.adjust_pane_sizes()
+
+
+def cmd_kill_command(watch, key):
+    """
+    Kills the selected pane and stops running the command it contains.
+    """
+    pane, command = watch.selected
+    watch.remove_pane(pane)
+    watch.remove_command(command)
+    watch.adjust_pane_sizes()
+
+
+def cmd_mark_diff(watch, key):
+    """
+    Enables diff mark mode in the selected pane. This diffs all future output
+    of the command in that pane against the output that is currently show
+    there.
+    """
+    pane, command = watch.selected
+    pane.show_diffs = True
+    command.set_diff_mark()
+    pane.draw_header(command)
+    pane.commit()
+
+
+# Curses color config.
+COLORS = [
+    (3, 0),
+    (7, 0),
+    (6, 0),
+    (0, 0),
+    (1, 0)
+]
+
+
+# A mapping of keycodes to functions of (`Watch` object, keycode).
+KEYBINDINGS = {
+    curses.KEY_RESIZE: lambda watch, d: watch.adjust_pane_sizes(),
+    ord('r'): lambda watch, d: watch.adjust_pane_sizes(),
+    ord('q'): lambda w, d: True,
+    ord('1'): cmd_select,
+    ord('2'): cmd_select,
+    ord('3'): cmd_select,
+    ord('4'): cmd_select,
+    ord('5'): cmd_select,
+    ord('6'): cmd_select,
+    ord('7'): cmd_select,
+    ord('8'): cmd_select,
+    ord('9'): cmd_select,
+    ord(' '): cmd_toggle_pause,
+    ord('+'): cmd_period_change(1),
+    ord('-'): cmd_period_change(-1),
+    ord('d'): cmd_toggle_diffs,
+    ord('m'): cmd_mark_diff,
+    ord('p'): cmd_edit_pattern,
+    ord('c'): cmd_edit_command,
+    ord('a'): cmd_add_command,
+    ord('k'): cmd_kill_command,
+}
+
+
+
+def redraw(seconds=1):
+    """
+    Redraws the screen periodically.
+    """
+    while True:
+        curses.doupdate()
+        gevent.sleep(seconds)
+
+
+def _parse_commands(args):
+    """
+    Parses commands from a list of arguments. Yields strings containing
+    commands between "--".
+
+    >>> list(_parse_commands(['date', '-Is', '--', 'ntpdate']))
+    ['date -Is', 'ntpdate']
+    """
+    command = []
+    for part in args:
+        if command and part == '--':
+            yield ' '.join(command)
+            command = []
+        else:
+            command.append(part)
+    if command:
+        yield ' '.join(command)
+
+
+def main():
+    queue = Queue()
+
+    running = Event()
+    running.set()
+
+    command_args = _parse_commands(sys.argv[1:])
+    commands = [Command(c, 2, running) for c in command_args]
+    if not commands:
+        raise Exception('nothing to run')
+    commands[0].selected = True
+
+    with Screen.configure(COLORS) as screen:
+        screen.clear_and_refresh()
+        gevent.spawn(screen.get_keys, queue)
+        gevent.spawn(redraw)
+
+        watch = Watch(screen, running, commands, queue)
+        for pane, command in watch:
+            command.start_runner(queue)
+            pane.draw_header(command)
+            pane.draw_wait()
+            pane.commit()
+        curses.doupdate()
+
+        while True:
+            tag, data = queue.get()
+            if tag == 'key':
+                if KEYBINDINGS.get(data, lambda w, k: None)(watch, data):
+                    break
+                curses.doupdate()
+                continue
+
+            command, output = data
+            pane = watch.pane_for_command(command)
+            if not pane:
+                continue
+
+            pane.draw_header(command)
+            pane.draw_output(output.splitlines(),
+                             diff_base=command.diff_base_output)
+            pane.commit()
+
+
+if __name__ == '__main__':
+    main()
