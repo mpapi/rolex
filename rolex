@@ -4,9 +4,10 @@ import locale
 locale.setlocale(locale.LC_ALL, "")
 
 from contextlib import contextmanager
+from cStringIO import StringIO
 from difflib import SequenceMatcher
 from Queue import Queue, Empty
-from subprocess import check_output, CalledProcessError
+from subprocess import check_output, CalledProcessError, Popen, PIPE
 from threading import Event, Thread
 import curses
 import curses.textpad
@@ -424,6 +425,23 @@ class Watch(object):
         else:
             self.running.set()
 
+    @contextmanager
+    def suspended(self):
+        """
+        A context manager that pauses all commands for the duration of the
+        execution of the `with` block and allows other applications to take
+        over the screen.
+        """
+        curses.def_prog_mode()
+        self.screen.clear_and_refresh()
+        self.running.clear()
+        try:
+            yield
+        finally:
+            self.running.set()
+            curses.reset_prog_mode()
+            self.screen.clear_and_refresh()
+
     def set_selected_from_key(self, key):
         """
         Sets the selected pane from the keycode `key`.
@@ -623,6 +641,19 @@ def cmd_force_run(with_reset):
     return _cmd
 
 
+def cmd_show_help(watch, key):
+    """
+    Shows the current keybindings. Uses $PAGER, or `less.
+    """
+    with watch.suspended():
+        proc = Popen(os.environ.get('PAGER', 'less'), stdin=PIPE, shell=True)
+        proc.communicate(generate_help_text())
+
+    for pane, command in watch:
+        pane.draw_header(command)
+        pane.commit()
+
+
 # Curses color config.
 COLORS = [
     (3, 0),
@@ -635,30 +666,45 @@ COLORS = [
 
 # A mapping of keycodes to functions of (`Watch` object, keycode).
 KEYBINDINGS = {
-    curses.KEY_RESIZE: lambda watch, d: watch.adjust_pane_sizes(),
-    ord('r'): lambda watch, d: watch.adjust_pane_sizes(),
-    ord('q'): lambda w, d: True,
-    ord('1'): cmd_select,
-    ord('2'): cmd_select,
-    ord('3'): cmd_select,
-    ord('4'): cmd_select,
-    ord('5'): cmd_select,
-    ord('6'): cmd_select,
-    ord('7'): cmd_select,
-    ord('8'): cmd_select,
-    ord('9'): cmd_select,
-    ord(' '): cmd_toggle_pause,
-    ord('+'): cmd_period_change(1),
-    ord('-'): cmd_period_change(-1),
-    ord('d'): cmd_toggle_diffs,
-    ord('m'): cmd_mark_diff,
-    ord('p'): cmd_edit_pattern,
-    ord('c'): cmd_edit_command,
-    ord('a'): cmd_add_command,
-    ord('k'): cmd_kill_command,
-    ord('f'): cmd_force_run(False),
-    ord('F'): cmd_force_run(True),
+    curses.KEY_RESIZE: (lambda watch, d: watch.adjust_pane_sizes(), None),
+    ord('r'): (lambda watch, d: watch.adjust_pane_sizes(), 'redraw panes'),
+    ord('q'): (lambda w, d: True, 'quit'),
+    ord('1'): (cmd_select, 'select pane 1'),
+    ord('2'): (cmd_select, 'select pane 2'),
+    ord('3'): (cmd_select, 'select pane 3'),
+    ord('4'): (cmd_select, 'select pane 4'),
+    ord('5'): (cmd_select, 'select pane 5'),
+    ord('6'): (cmd_select, 'select pane 6'),
+    ord('7'): (cmd_select, 'select pane 7'),
+    ord('8'): (cmd_select, 'select pane 8'),
+    ord('9'): (cmd_select, 'select pane 9'),
+    ord(' '): (cmd_toggle_pause, 'pause/unpause all commands'),
+    ord('+'): (cmd_period_change(1), "increase selected pane's period"),
+    ord('-'): (cmd_period_change(-1), "decrease selected pane's period"),
+    ord('d'): (cmd_toggle_diffs, 'enable diff last mode, or disable diffs'),
+    ord('m'): (cmd_mark_diff, 'enable diff mark mode'),
+    ord('p'): (cmd_edit_pattern, 'set/edit highlight pattern'),
+    ord('c'): (cmd_edit_command, 'edit the selected command'),
+    ord('a'): (cmd_add_command, 'add a pane to run a new command'),
+    ord('k'): (cmd_kill_command, 'kill the selected pane'),
+    ord('f'): (cmd_force_run(False), 'run the selected command now'),
+    ord('F'): (cmd_force_run(True), 'run the command and reset next run time'),
+    ord('h'): (cmd_show_help, 'show help'),
+    ord('?'): (cmd_show_help, 'show help'),
 }
+
+
+def generate_help_text():
+    """
+    Generate a string of help text.
+    """
+    help_text = StringIO()
+    print >> help_text, 'Keybindings:'
+    print >> help_text
+    for key, (func, desc) in sorted(KEYBINDINGS.iteritems()):
+        if desc:
+            print >> help_text, "  '%s'  %s" % (chr(key), desc)
+    return help_text.getvalue()
 
 
 def spawn(func, *args, **kwargs):
@@ -733,7 +779,8 @@ def main():
                 continue
 
             if tag == 'key':
-                if KEYBINDINGS.get(data, lambda w, k: None)(watch, data):
+                func, _ = KEYBINDINGS.get(data, (lambda w, k: None, None))
+                if func(watch, data):
                     break
                 curses.doupdate()
                 continue
