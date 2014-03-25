@@ -756,7 +756,8 @@ def main():
     command_args = _parse_commands(sys.argv[1:])
     commands = [Command(c, 2, running) for c in command_args]
     if not commands:
-        raise Exception('nothing to run')
+        print 'Nothing to run.'
+        return
     commands[0].selected = True
 
     with Screen.configure(COLORS) as screen:
