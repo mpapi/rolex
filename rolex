@@ -588,6 +588,8 @@ def cmd_edit_pattern(watch, key):
     pane, command = watch.selected
     new_pattern = watch.screen.prompt_user('Pattern: ', pane.pattern or '')
     pane.pattern = new_pattern or None
+    pane.draw_header(command)
+    pane.commit()
 
 
 def cmd_edit_command(watch, key):
