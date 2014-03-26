@@ -30,7 +30,7 @@ Pressing "?" or "h" in `rolex` will display keybindings in `less` (or
 
 # A screenshot
 
-![Rolex Screenshot](https://github.com/hut8labs/rolex/master/doc/rolex.png?raw=true)
+![Rolex Screenshot](https://github.com/hut8labs/rolex/blob/master/doc/rolex.png?raw=true)
 
 
 # Todo
