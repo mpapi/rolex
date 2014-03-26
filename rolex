@@ -478,9 +478,10 @@ class Watch(object):
         """
         command.stop_runner()
         self.commands.remove(command)
-        if not any(c.selected for c in self.commands):
+        if not any(c.selected for c in self.commands) and self.commands:
             self.commands[0].selected = True
         self.pane_map = dict(enumerate(self.commands))
+        return len(self.commands) == 0
 
     def adjust_pane_sizes(self):
         """
@@ -489,6 +490,9 @@ class Watch(object):
         """
         self.screen.update_size()
         self.screen.clear_and_refresh()
+
+        if not self.commands:
+            return
 
         new_height = self.screen.height / len(self.commands)
         for pane, command in self:
@@ -612,7 +616,8 @@ def cmd_kill_command(watch, key):
     """
     pane, command = watch.selected
     watch.remove_pane(pane)
-    watch.remove_command(command)
+    if watch.remove_command(command):
+        return True
     watch.adjust_pane_sizes()
 
 
