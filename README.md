@@ -20,7 +20,7 @@ its output in the full width and height of the terminal, but it can also:
 `rolex` is implemented in Python, in a single executable script, and has no
 dependencies beyond the Python standard library.
 
-    $ wget https://github.com/hut8labs/rolex/raw/master/rolex
+    $ curl -L https://github.com/hut8labs/rolex/raw/master/rolex > rolex
     $ chmod +x rolex
     $ ./rolex command1 arg1 arg2 -- command2 arg1
 
