@@ -595,7 +595,10 @@ def cmd_edit_command(watch, key):
     Opens a prompt to set or edit the command that runs in the selected pane.
     """
     pane, command = watch.selected
-    command.command = watch.screen.prompt_user('Command: ', command.command)
+    new_command = watch.screen.prompt_user('Command: ', command.command)
+    if not new_command:
+        return
+    command.command = new_command
     command.trigger_rerun(reset_schedule=True)
 
 
@@ -605,7 +608,12 @@ def cmd_add_command(watch, key):
     new pane.
     """
     command = watch.screen.prompt_user('Run: ', '')
-    period = int(watch.screen.prompt_user('Period: ', ''))
+    if not command:
+        return
+    try:
+        period = int(watch.screen.prompt_user('Period: ', ''))
+    except ValueError:
+        return
     watch.add_pane_and_command(command, period)
     watch.adjust_pane_sizes()
 
