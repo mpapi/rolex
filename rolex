@@ -166,6 +166,7 @@ class Pane(object):
         self.index = index
         self.show_diffs = False
         self.pattern = None
+        self.graph = False
 
         self.width = width
 
@@ -213,7 +214,9 @@ class Pane(object):
         pos += len(command.command) + 1
 
         # Add markers for other states.
-        if self.show_diffs:
+        if self.graph:
+            self.pad.addstr(0, pos, 'graph', curses.color_pair(1))
+        elif self.show_diffs:
             diff_str = 'diff last' if not command.mark else 'diff mark'
             self.pad.addstr(0, pos, diff_str, curses.color_pair(1))
         elif self.pattern:
@@ -231,7 +234,17 @@ class Pane(object):
         output.append('Waiting for output...'.center(self.width))
         self.draw_output(output)
 
-    def draw_output(self, output, diff_base=None):
+    def draw_graph(self, output):
+        """
+        Renders `output`, which is assumed to be a list of string lines
+        containing floating point values, as an ASCII/Unicode time-series bar
+        graph.
+        """
+        lines = (line for line in (line.strip() for line in output) if line)
+        graph = Graph(self.height - 3, self.width - 1, lines, y_offset=2)
+        graph.render(self.pad)
+
+    def draw_output(self, output, diff_base=None, history=None):
         """
         Draws the output of a command, as a list of strings, to the pane.
 
@@ -241,6 +254,21 @@ class Pane(object):
         # Clear the pane, except the header.
         self.pad.move(1, 0)
         self.pad.clrtobot()
+
+        if self.graph and self.pattern and history:
+            # TODO None -> unknown (for gap in graph)
+            pattern_matches = [
+                re.findall('[-0-9.]+', match[0])[0] for match in
+                (re.findall(self.pattern, line)
+                 for output in history for line in output.splitlines())
+                if match]
+
+            with open('/tmp/rolex-graph', 'w') as fil:
+                print >> fil, history, repr(pattern_matches)
+
+            return self.draw_graph(pattern_matches)
+        elif self.graph:
+            return self.draw_graph(output)
 
         for lineno, line in enumerate(output[-(self.height - 2):]):
             # Write the line, making sure it can fit in the pane.
@@ -269,6 +297,72 @@ class Pane(object):
                              self.index * self.height, 0,
                              (self.index + 1) * self.height - 2,
                              self.width)
+
+
+class Graph(object):
+    """
+    Renders a time-series bar graph from a set of points.
+    """
+    def __init__(self, graph_height, graph_width, values,
+                 y_offset=1, x_offset=1, y_labels=4):
+        self.graph_height = graph_height
+        self.graph_width = graph_width
+        self.y_offset = y_offset
+        self.x_offset = x_offset
+        self.y_labels = y_labels
+
+        self.points = [float(value) for value in values]
+
+        # Collapse (average) adjacent points if we have more points than
+        # available width for each one to have a bar.
+        if self.graph_width < len(self.points):
+            points_per_col = len(self.points) / float(self.graph_width)
+            points_per_col = max(2, int(round(points_per_col)))
+            new_points = []
+            for i in range(0, len(self.points), points_per_col):
+                col_slice = self.points[i:i + points_per_col]
+                new_points.append(sum(col_slice) / float(len(col_slice)))
+            self.points = new_points
+
+    @property
+    def bar_width(self):
+        """
+        Computes the width of a bar in the graph, to come as close as possible
+        to filling the allowed width.
+        """
+        return max(1, self.graph_width / len(self.points))
+
+    def render(self, pad, fill=u'\u2592'):
+        """
+        Renders the bar to `pad`, using `fill` as the character to draw bars.
+        """
+        min_point, max_point = min(self.points), max(self.points)
+
+        # Set up a matrix of characters (all spaces at first).
+        graph = [[' ' for _ in range(self.graph_width)]
+                 for _ in range(self.graph_height)]
+
+        # Update the matrix with the fill char.
+        delta = max(1, (max_point - min_point))
+        for col, point in enumerate(self.points):
+            for col_offset in range(self.bar_width):
+                pct_height = (point - min_point) / delta
+                bar_height = int(pct_height * self.graph_height)
+                for row in range(bar_height):
+                    y = self.graph_height - 1 - row
+                    x = col * self.bar_width + col_offset
+                    graph[y][x] = fill
+
+        # Render the matrix to the curses pad.
+        graph_lines = (u''.join(line).encode('utf8') for line in graph)
+        for lineno, line in enumerate(graph_lines):
+            pad.addstr(self.y_offset + lineno, self.x_offset, line)
+
+        # Render y-axis labels.
+        for label in range(self.y_labels + 1):
+            pct = float(label) / self.y_labels
+            y = 1 + int(self.graph_height * (1 - pct))
+            pad.addstr(y, 1, str(min_point + pct * delta))
 
 
 def get_matches(pattern, line):
@@ -669,6 +763,17 @@ def cmd_show_help(watch, key):
         pane.commit()
 
 
+def cmd_toggle_graph(watch, key):
+    """
+    Toggles graph mode for the command in the selected pane.
+    """
+    pane, command = watch.selected
+    pane.graph = not pane.graph
+    command.trigger_rerun()
+    pane.draw_header(command)
+    pane.commit()
+
+
 # Curses color config.
 COLORS = [
     (3, 0),
@@ -706,6 +811,7 @@ KEYBINDINGS = {
     ord('F'): (cmd_force_run(True), 'run the command and reset next run time'),
     ord('h'): (cmd_show_help, 'show help'),
     ord('?'): (cmd_show_help, 'show help'),
+    ord('g'): (cmd_toggle_graph, 'toggle graph mode')
 }
 
 
@@ -808,7 +914,8 @@ def main():
 
             pane.draw_header(command)
             pane.draw_output(output.splitlines(),
-                             diff_base=command.diff_base_output)
+                             diff_base=command.diff_base_output,
+                             history=command.content)
             pane.commit()
 
 

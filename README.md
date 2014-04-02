@@ -13,6 +13,8 @@ its output in the full width and height of the terminal, but it can also:
   mode)
 * highlight matches of a pattern in a command's output
 * manually rerun a command
+* render a time-series ASCII bar graph of the numerical values in a command's
+  output
 
 
 # Quick start
