@@ -262,10 +262,6 @@ class Pane(object):
                 (re.findall(self.pattern, line)
                  for output in history for line in output.splitlines())
                 if match]
-
-            with open('/tmp/rolex-graph', 'w') as fil:
-                print >> fil, history, repr(pattern_matches)
-
             return self.draw_graph(pattern_matches)
         elif self.graph:
             return self.draw_graph(output)
