@@ -155,29 +155,30 @@ class Pane(object):
     This manages a curses pad, rendering to that off-screen and then drawing
     the pad into the correct part of the screen.
     """
-    def __init__(self, index, height, width):
+    def __init__(self, index, height, width, layout):
         """
         - `index` is 0 for the topmost pane on the screen, 1 for the one below
           that, etc.
         - `height` is the height of the pane, in terminal rows
-        - `width` is the width of the pane/screen (panes are currently
-          full-width, so these are the same), in terminal columns
+        - `width` is the width of the pane, in terminal columns
+        - `layout` is the layout manager for the pane
         """
         self.index = index
         self.show_diffs = False
         self.pattern = None
         self.graph = False
 
-        self.width = width
+        self.layout = layout
+        self.resize(height, width)
 
-        self.resize(height)
-
-    def resize(self, height):
+    def resize(self, height, width):
         """
-        Adjusts the height of the pane to be `height` terminal rows.
+        Adjusts the height and width of the pane to be `height` terminal rows
+        and `width` columns.
         """
         self.height = height
-        self.pad = curses.newpad(height, self.width)
+        self.width = width
+        self.pad = curses.newpad(height, width)
 
     def draw_header(self, command, use_unicode=True, use_since=False):
         """
@@ -289,10 +290,35 @@ class Pane(object):
         """
         Writes the changes to the pad out to the window, but doesn't redraw.
         """
-        self.pad.noutrefresh(0, 0,
-                             self.index * self.height, 0,
-                             (self.index + 1) * self.height - 2,
-                             self.width)
+        self.layout.commit(self.pad, self.index, self.height, self.width)
+
+
+class EvenVerticalLayout(object):
+    """
+    A layout that draws panes full-width, stacking them equally-sized
+    vertically.
+    """
+    def size(self, size, index, height, width):
+        return height / size, width
+
+    def commit(self, pad, index, height, width):
+        pad.noutrefresh(0, 0,
+                        index * height, 0,
+                        (index + 1) * height - 2, width)
+
+
+class EvenHorizontalLayout(object):
+    """
+    A layout that draws panes full-height, stacking them equally-sized
+    horizontally.
+    """
+    def size(self, size, index, height, width):
+        return height, width / size
+
+    def commit(self, pad, index, height, width):
+        pad.noutrefresh(0, 0,
+                        0, index * width,
+                        height, (index + 1) * width - 2)
 
 
 class Graph(object):
@@ -496,14 +522,15 @@ class Watch(object):
         self.commands = commands
         self.queue = queue
         self.running = running
+        self.layout = LAYOUTS[0]
 
-        pane_height = self.screen.height / len(commands)
-        self.panes = [Pane(i, pane_height, self.screen.width)
-                      for i in range(len(commands))]
+        self.panes = [Pane(i, 1, 1, self.layout) for i in range(len(commands))]
 
         # This maps pane index to the command to show in that pane, so we can
         # rearrange them.
         self.pane_map = dict(enumerate(self.commands))
+
+        self.adjust_pane_sizes()
 
     def toggle_running(self):
         """
@@ -546,7 +573,7 @@ class Watch(object):
         """
         Adds `command` to run every `period` seconds in a new pane.
         """
-        pane = Pane(len(self.commands), 1, self.screen.width)
+        pane = Pane(len(self.commands), 1, 1, self.layout)
         self.panes.append(pane)
 
         command = Command(command, period, self.running)
@@ -573,6 +600,16 @@ class Watch(object):
         self.pane_map = dict(enumerate(self.commands))
         return len(self.commands) == 0
 
+    def set_layout(self, new_layout):
+        """
+        Sets `new_layout` as the new layout to use when drawing the screen,
+        and immediately resizes/redraws all panes accordingly.
+        """
+        self.layout = new_layout
+        for pane in self.panes:
+            pane.layout = new_layout
+        self.adjust_pane_sizes()
+
     def adjust_pane_sizes(self):
         """
         Resize all panes so that they're all evenly about (screen height / # of
@@ -584,9 +621,12 @@ class Watch(object):
         if not self.commands:
             return
 
-        new_height = self.screen.height / len(self.commands)
         for pane, command in self:
-            pane.resize(new_height)
+            new_height, new_width = self.layout.size(len(self.commands),
+                                                     pane.index,
+                                                     self.screen.height,
+                                                     self.screen.width)
+            pane.resize(new_height, new_width)
             pane.draw_header(command)
             if not command.content:
                 pane.draw_wait()
@@ -770,6 +810,20 @@ def cmd_toggle_graph(watch, key):
     pane.commit()
 
 
+def cmd_cycle_layout(watch, key):
+    """
+    Toggles graph mode for the command in the selected pane.
+    """
+    new_layout = LAYOUTS[(LAYOUTS.index(watch.layout) + 1) % len(LAYOUTS)]
+    watch.set_layout(new_layout)
+
+
+LAYOUTS = [
+    EvenVerticalLayout(),
+    EvenHorizontalLayout()
+]
+
+
 # Curses color config.
 COLORS = [
     (3, 0),
@@ -807,7 +861,8 @@ KEYBINDINGS = {
     ord('F'): (cmd_force_run(True), 'run the command and reset next run time'),
     ord('h'): (cmd_show_help, 'show help'),
     ord('?'): (cmd_show_help, 'show help'),
-    ord('g'): (cmd_toggle_graph, 'toggle graph mode')
+    ord('g'): (cmd_toggle_graph, 'toggle graph mode'),
+    ord('o'): (cmd_cycle_layout, 'cycle layouts (vertical <-> horizontal)'),
 }
 
 

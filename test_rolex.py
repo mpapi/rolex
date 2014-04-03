@@ -2,7 +2,7 @@ from mock import Mock, patch, call, ANY
 from nose.tools import eq_
 
 from rolex import Command, Pane, Watch, get_matches, get_diffs
-from rolex import Event
+from rolex import Event, EvenVerticalLayout
 
 
 def test_command_change_period():
@@ -53,7 +53,8 @@ def test_command_diff_last():
 @patch('rolex.curses')
 def test_pad_draw_header(curses_mock, time_mock):
     time_mock.ctime.return_value = ctime = 'Tue Mar 25 21:00:00 2014'
-    Pane(0, 25, 80).draw_header(Command('test', 1, Mock()))
+    layout = EvenVerticalLayout()
+    Pane(0, 25, 80, layout).draw_header(Command('test', 1, Mock()))
     curses_mock.newpad().addstr.assert_has_calls([
         call(0, 0, ANY, ANY),
         call(0, 2, '1', ANY),
@@ -64,7 +65,8 @@ def test_pad_draw_header(curses_mock, time_mock):
 
 @patch('rolex.curses')
 def test_pad_draw_wait(curses_mock):
-    Pane(0, 25, 80).draw_wait()
+    layout = EvenVerticalLayout()
+    Pane(0, 25, 80, layout).draw_wait()
     curses_mock.newpad().addstr.assert_has_calls([
         call(i, 1, ANY) for i in range(2, 13)
     ])
@@ -84,7 +86,7 @@ def test_watch_toggle_running(curses_mock):
 
     cmd1 = Command('test1', 1, Mock())
     cmd2 = Command('test2', 2, Mock())
-    watch = Watch(Mock(height=20), running, [cmd1, cmd2], Mock())
+    watch = Watch(Mock(height=20, width=80), running, [cmd1, cmd2], Mock())
     eq_(False, running.is_set())
 
     watch.toggle_running()
@@ -98,7 +100,7 @@ def test_watch_toggle_running(curses_mock):
 def test_watch_set_selected(curses_mock):
     cmd1 = Command('test1', 1, Mock())
     cmd2 = Command('test2', 2, Mock())
-    watch = Watch(Mock(height=20), Mock(), [cmd1, cmd2], Mock())
+    watch = Watch(Mock(height=20, width=80), Mock(), [cmd1, cmd2], Mock())
 
     eq_(False, cmd1.selected)
     eq_(False, cmd2.selected)
