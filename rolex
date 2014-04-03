@@ -631,7 +631,9 @@ class Watch(object):
             if not command.content:
                 pane.draw_wait()
             else:
-                pane.draw_output(command.content[-1].splitlines())
+                pane.draw_output(command.content[-1].splitlines(),
+                                 diff_base=command.diff_base_output,
+                                 history=command.content)
             pane.commit()
 
     def __iter__(self):
