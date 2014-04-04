@@ -167,6 +167,8 @@ class Pane(object):
         self.show_diffs = False
         self.pattern = None
         self.graph = False
+        self.browsing = False
+        self.browsing_at = -1
 
         self.layout = layout
         self.resize(height, width)
@@ -213,6 +215,10 @@ class Pane(object):
         # Write the command.
         self.pad.addstr(0, pos, command.command, attrs)
         pos += len(command.command) + 1
+
+        if self.browsing:
+            self.pad.addstr(0, pos, 'browse', curses.color_pair(1))
+            pos += len('browse') + 1
 
         # Add markers for other states.
         if self.graph:
@@ -820,6 +826,50 @@ def cmd_cycle_layout(watch, key):
     watch.set_layout(new_layout)
 
 
+def cmd_back_output(watch, key):
+    """
+    Puts the selected pane in "browsing mode" if it's not already, and shows
+    the output of the run before the one that's currently displayed.
+    """
+    pane, command = watch.selected
+    pane.browsing = True
+    if pane.browsing_at > -len(command.content):
+        pane.browsing_at -= 1
+    pane.draw_header(command)
+    pane.draw_output(command.content[pane.browsing_at].splitlines(),
+                     diff_base=command.diff_base_output)
+    pane.commit()
+
+
+def cmd_forward_output(watch, key):
+    """
+    Puts the selected pane in "browsing mode" if it's not already, and shows
+    the output of the run after the one that's currently displayed.
+    """
+    pane, command = watch.selected
+    pane.browsing = True
+    if pane.browsing_at < -1:
+        pane.browsing_at += 1
+    # TODO show the time of the command run we're displaying too
+    pane.draw_header(command)
+    pane.draw_output(command.content[pane.browsing_at].splitlines(),
+                     diff_base=command.diff_base_output)
+    pane.commit()
+
+
+def cmd_current_output(watch, key):
+    """
+    Takes the selected pane out of "browsing mode" and shows the output of the
+    most recent command run.
+    """
+    pane, command = watch.selected
+    pane.browsing = False
+    pane.browsing_at = -1
+    command.trigger_rerun()
+    pane.draw_header(command)
+    pane.commit()
+
+
 LAYOUTS = [
     EvenVerticalLayout(),
     EvenHorizontalLayout()
@@ -865,6 +915,9 @@ KEYBINDINGS = {
     ord('?'): (cmd_show_help, 'show help'),
     ord('g'): (cmd_toggle_graph, 'toggle graph mode'),
     ord('o'): (cmd_cycle_layout, 'cycle layouts (vertical <-> horizontal)'),
+    ord('<'): (cmd_back_output, 'go to output of previous command run'),
+    ord('>'): (cmd_forward_output, 'go to next of previous command run'),
+    ord('n'): (cmd_current_output, 'stop browsing command output'),
 }
 
 
@@ -963,6 +1016,9 @@ def main():
             command, output = data
             pane = watch.pane_for_command(command)
             if not pane:
+                continue
+
+            if pane.browsing:
                 continue
 
             pane.draw_header(command)

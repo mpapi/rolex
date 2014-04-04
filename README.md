@@ -39,7 +39,6 @@ Pressing "?" or "h" in `rolex` will display keybindings in `less` (or
 
 Some work in progress and feature ideas:
 
-* rewinding command output
 * pane resizing/moving
 * 256-color support
 * graph mode
