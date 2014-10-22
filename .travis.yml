@@ -7,4 +7,4 @@ python:
   - "3.4"
 install:
   - "pip install -r dev_requirements.txt"
-script: make lint test
+script: make ENV=ci lint test
