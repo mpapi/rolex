@@ -1,5 +1,7 @@
 # Rolex
 
+[![Build Status](https://travis-ci.org/hut8labs/rolex.svg?branch=master)](https://travis-ci.org/hut8labs/rolex)
+
 `rolex` is a better `watch(1)`. It can run a command periodically, displaying
 its output in the full width and height of the terminal, but it can also:
 
