@@ -36,6 +36,9 @@ class Command(object):
         self.terminated = False
         self.scheduled_run = Event()
 
+        self.active = True
+        self.latch = Event()
+
         self.friendly_time = False
 
     def start_runner(self, queue):
@@ -54,6 +57,23 @@ class Command(object):
         this does nothing.
         """
         self.terminated = True
+
+    def toggle_running(self):
+        """
+        Toggles the active state of the command, for pausing/unpausing this
+        command independently of the others.
+        """
+        self.set_running(not self.active)
+
+    def set_running(self, running):
+        """
+        Sets the active state of the command to `running`.
+        """
+        self.active = running
+        if self.active:
+            self.latch.set()
+        else:
+            self.latch.clear()
 
     def change_period(self, amount):
         """
@@ -89,6 +109,7 @@ class Command(object):
         when it normally would have.
         """
         self.scheduled_run.set()
+        self.latch.set()
         if reset_schedule:
             self.next_run = time.time()
 
@@ -125,7 +146,7 @@ class Command(object):
                 break
             now = time.time()
             result = self.scheduled_run.wait(self.next_run - now)
-            if result or self.next_run - now > 0:
+            if self.latch.is_set() and (result or self.next_run - now > 0):
                 try:
                     with open(os.devnull, 'w') as devnull:
                         output = check_output(self.command,
@@ -145,6 +166,12 @@ class Command(object):
                 self.next_run += max(1, self.period)
 
             self.running.wait()
+
+            if not self.active:
+                self.latch.clear()
+            else:
+                self.latch.set()
+            self.latch.wait()
 
 
 class Pane(object):
@@ -207,7 +234,7 @@ class Pane(object):
         # Attributes for the command depend on whether it's running and/or
         # selected.
         attrs = curses.color_pair(3)
-        if not command.running.is_set():
+        if not command.running.is_set() or not command.active:
             attrs = curses.color_pair(4) | curses.A_BOLD
         if command.selected:
             attrs |= curses.A_UNDERLINE
@@ -538,16 +565,6 @@ class Watch(object):
 
         self.adjust_pane_sizes()
 
-    def toggle_running(self):
-        """
-        Toggles the `running` flag, pausing or unpausing command runs
-        accordingly.
-        """
-        if self.running.is_set():
-            self.running.clear()
-        else:
-            self.running.set()
-
     @contextmanager
     def suspended(self):
         """
@@ -686,10 +703,21 @@ def cmd_toggle_pause(watch, key):
     """
     Toggles the "paused" flag for all commands.
     """
-    watch.toggle_running()
+    all_active = all(command.active for _, command in watch)
     for pane, command in watch:
+        command.set_running(not all_active)
         pane.draw_header(command)
         pane.commit()
+
+
+def cmd_toggle_pause_one(watch, key):
+    """
+    Toggles the "paused" flag for the selected commands.
+    """
+    pane, command = watch.selected
+    command.toggle_running()
+    pane.draw_header(command)
+    pane.commit()
 
 
 def cmd_period_change(amount):
@@ -901,6 +929,7 @@ KEYBINDINGS = {
     ord('8'): (cmd_select, 'select pane 8'),
     ord('9'): (cmd_select, 'select pane 9'),
     ord(' '): (cmd_toggle_pause, 'pause/unpause all commands'),
+    ord('P'): (cmd_toggle_pause_one, 'pause/unpause the current command'),
     ord('+'): (cmd_period_change(1), "increase selected pane's period"),
     ord('-'): (cmd_period_change(-1), "decrease selected pane's period"),
     ord('d'): (cmd_toggle_diffs, 'enable diff last mode, or disable diffs'),
