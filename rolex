@@ -5,6 +5,7 @@ locale.setlocale(locale.LC_ALL, "")
 
 from contextlib import contextmanager
 from cStringIO import StringIO
+from datetime import datetime
 from difflib import SequenceMatcher
 from Queue import Queue, Empty
 from subprocess import check_output, CalledProcessError, Popen, PIPE
@@ -501,6 +502,26 @@ class Screen(object):
         """
         self.height, self.width = self._screen.getmaxyx()
 
+    def message_user(self, message_string, delay=3):
+        """
+        Writes a message to the user at the bottom of the screen, erasing it
+        after `delay` seconds.
+
+        (Currently, there is no protection from overwriting other messages or
+        prompts.)
+        """
+        self._screen.addstr(self.height - 1, 0, message_string)
+        self._screen.refresh()
+        spawn(self._destroy_message, delay)
+
+    def _destroy_message(self, delay):
+        """
+        Erases the message set by `message_user` after `delay` seconds.
+        """
+        time.sleep(delay)
+        self._screen.move(self.height - 1, 0)
+        self._screen.clrtobot()
+
     def prompt_user(self, prompt_string, default_value):
         """
         Prompt the user with a bar at the bottom of the screen.
@@ -898,6 +919,24 @@ def cmd_current_output(watch, key):
     pane.commit()
 
 
+def cmd_write_config(watch, key):
+    """
+    Writes a config file (for now, in the working directory) describing the
+    current layout.
+    """
+    conf_path = 'rolex.%s.conf' % datetime.now().isoformat()
+    with open(conf_path, 'w') as conf:
+        for pane, command in watch:
+            print >> conf, '[pane %d]' % pane.index
+            for field in ['show_diffs', 'pattern', 'graph', 'height', 'width']:
+                print >> conf, '%s = %r' % (field, getattr(pane, field))
+            print >> conf, 'layout = %r' % pane.layout.__class__.__name__
+            for field in ['command', 'period', 'selected', 'active']:
+                print >> conf, '%s = %r' % (field, getattr(command, field))
+            print >> conf
+    watch.screen.message_user('Wrote conf to %s' % conf_path)
+
+
 LAYOUTS = [
     EvenVerticalLayout(),
     EvenHorizontalLayout()
@@ -947,6 +986,7 @@ KEYBINDINGS = {
     ord('<'): (cmd_back_output, 'go to output of previous command run'),
     ord('>'): (cmd_forward_output, 'go to next of previous command run'),
     ord('n'): (cmd_current_output, 'stop browsing command output'),
+    ord('w'): (cmd_write_config, 'write current layout to a config file'),
 }
 
 
