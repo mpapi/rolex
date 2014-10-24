@@ -928,11 +928,13 @@ def cmd_write_config(watch, key):
     with open(conf_path, 'w') as conf:
         for pane, command in watch:
             print >> conf, '[pane %d]' % pane.index
-            for field in ['show_diffs', 'pattern', 'graph', 'height', 'width']:
-                print >> conf, '%s = %r' % (field, getattr(pane, field))
-            print >> conf, 'layout = %r' % pane.layout.__class__.__name__
+            for field in ['show_diffs', 'graph', 'height', 'width']:
+                print >> conf, '%s = %s' % (field, getattr(pane, field))
+            if pane.pattern is not None:
+                print >> conf, 'pattern = %s' % pane.pattern
+            print >> conf, 'layout = %s' % pane.layout.__class__.__name__
             for field in ['command', 'period', 'selected', 'active']:
-                print >> conf, '%s = %r' % (field, getattr(command, field))
+                print >> conf, '%s = %s' % (field, getattr(command, field))
             print >> conf
     watch.screen.message_user('Wrote conf to %s' % conf_path)
 
