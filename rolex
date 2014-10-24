@@ -3,6 +3,7 @@
 import locale
 locale.setlocale(locale.LC_ALL, "")
 
+from ConfigParser import RawConfigParser
 from contextlib import contextmanager
 from cStringIO import StringIO
 from datetime import datetime
@@ -1045,18 +1046,45 @@ def _parse_commands(args):
         yield ' '.join(command)
 
 
+def _read_config(conf_file, running):
+    parser = RawConfigParser()
+    parser.read([conf_file])
+    for section in sorted(parser.sections()):
+        if parser.has_option(section, 'pattern'):
+            pattern = parser.get(section, 'pattern')
+        else:
+            pattern = None
+        yield dict(command=parser.get(section, 'command'),
+                   period=parser.getint(section, 'period'),
+                   selected=parser.getboolean(section, 'selected'),
+                   active=parser.getboolean(section, 'active'),
+                   show_diffs=parser.getboolean(section, 'show_diffs'),
+                   pattern=pattern,
+                   layout=parser.get(section, 'layout'),
+                   graph=parser.getboolean(section, 'graph'))
+
+
 def main():
     queue = Queue()
 
     running = Event()
     running.set()
 
-    command_args = _parse_commands(sys.argv[1:])
-    commands = [Command(c, 2, running) for c in command_args]
-    if not commands:
-        print 'Nothing to run.'
-        return
-    commands[0].selected = True
+    pane_overrides = None
+
+    command_args = list(_parse_commands(sys.argv[1:]))
+    if len(command_args) == 1 and command_args[0].endswith('.conf'):
+        pane_overrides = []
+        commands = []
+        for pane in _read_config(command_args[0], running):
+            pane_overrides.append(pane)
+            commands.append(Command(pane['command'], pane['period'], running))
+    else:
+        commands = [Command(c, 2, running) for c in command_args]
+        if not commands:
+            print 'Nothing to run.'
+            return
+        commands[0].selected = True
 
     with Screen.configure(COLORS) as screen:
         screen.clear_and_refresh()
@@ -1064,7 +1092,19 @@ def main():
         spawn(redraw)
 
         watch = Watch(screen, running, commands, queue)
-        for pane, command in watch:
+        for i, (pane, command) in enumerate(watch):
+            if pane_overrides is not None:
+                assert 0 <= i < len(pane_overrides)
+                overrides = pane_overrides[i]
+                command.selected = overrides['selected']
+                command.active = overrides['active']
+                pane.show_diffs = overrides['show_diffs']
+                pane.pattern = overrides['pattern']
+                pane.graph = overrides['graph']
+                pane.layout = [
+                    layout for layout in LAYOUTS
+                    if layout.__class__.__name__ == overrides['layout']][0]
+
             command.start_runner(queue)
             pane.draw_header(command)
             pane.draw_wait()
