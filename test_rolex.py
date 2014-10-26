@@ -1,8 +1,20 @@
+import atexit
+import os
+import shutil
+import tempfile
+import textwrap
+
 from mock import Mock, patch, call, ANY
 from nose.tools import eq_
 
-from rolex import Command, Pane, Watch, get_matches, get_diffs
+from rolex import Command, Pane, Watch, get_matches, get_diffs, _read_config
 from rolex import EvenVerticalLayout
+
+
+def _tempdir():
+    temp = tempfile.mkdtemp()
+    atexit.register(shutil.rmtree, temp)
+    return temp
 
 
 def test_command_change_period():
@@ -116,3 +128,31 @@ def test_watch_set_selected(curses_mock):
 
     eq_(False, cmd1.selected)
     eq_(True, cmd2.selected)
+
+
+def test_read_config():
+    temp = _tempdir()
+    conf = os.path.join(temp, 'test.conf')
+    with open(conf, 'w') as fil:
+        print >> fil, textwrap.dedent("""
+            [pane 0]
+            show_diffs = False
+            graph = False
+            height = 100
+            width = 100
+            layout = EvenVerticalLayout
+            command = test
+            period = 2
+            selected = True
+            active = True
+        """).strip()
+    parsed = list(_read_config(conf, None))
+    eq_(1, len(parsed))
+    eq_(dict(command='test',
+             period=2,
+             selected=True,
+             active=True,
+             show_diffs=False,
+             pattern=None,
+             layout='EvenVerticalLayout',
+             graph=False), parsed[0])
