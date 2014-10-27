@@ -136,6 +136,41 @@ class Command(object):
         """
         return self.last_update
 
+    def wait_until_next_run(self, now):
+        """
+        Waits until the time of the next scheduled rerun (or returns
+        immediately if that time is in the past).
+
+        Returns True if the command should be run again, False if it doesn't
+        need to.
+        """
+        result = self.scheduled_run.wait(self.next_run - now)
+        return self.latch.is_set() and (result or self.next_run - now > 0)
+
+    def _get_output(self):
+        """
+        Runs the command, returning its output.
+
+        If the command failed to run, returns an error message instead.
+        """
+        try:
+            with open(os.devnull, 'w') as devnull:
+                return check_output(self.command, stderr=devnull, shell=True)
+        except CalledProcessError, e:
+            return "Error running '%s':\n\n%s" % (self.command, e)
+
+    def _record_output(self, output):
+        # TODO diff against last, store time and data
+        self.content.append(output)
+        if len(self.content) > 60:
+            self.content.pop(0)
+
+    def _compute_next_run(self, now):
+        next_run = self.next_run
+        while next_run < now:
+            next_run += max(1, self.period)
+        return next_run
+
     def _run(self, queue):
         """
         Periodically runs the command (forever), adding its output to `queue`.
@@ -147,25 +182,14 @@ class Command(object):
             if self.terminated:
                 break
             now = time.time()
-            result = self.scheduled_run.wait(self.next_run - now)
-            if self.latch.is_set() and (result or self.next_run - now > 0):
-                try:
-                    with open(os.devnull, 'w') as devnull:
-                        output = check_output(self.command,
-                                              stderr=devnull, shell=True)
-                except CalledProcessError, e:
-                    output = "Error running '%s':\n\n%s" % (self.command, e)
+            if self.wait_until_next_run(now):
+                output = self._get_output()
                 self.last_update = time.ctime()
-                # TODO diff against last, store time and data
-                self.content.append(output)
-                if len(self.content) > 60:
-                    self.content.pop(0)
-
+                self._record_output(output)
                 queue.put(('output', (self, output)))
                 self.scheduled_run.clear()
 
-            while self.next_run < now:
-                self.next_run += max(1, self.period)
+            self.next_run = self._compute_next_run(now)
 
             self.running.wait()
 
