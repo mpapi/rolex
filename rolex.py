@@ -900,6 +900,18 @@ def cmd_cycle_layout(watch, key):
     watch.set_layout(new_layout)
 
 
+def cmd_rotate_panes(amount):
+    """
+    Rotates panes, popping the first `amount` and tacking them on the end of
+    the ordered arrangement of panes.
+    """
+    def _rotate(watch, key):
+        commands = [cmd for _, cmd in sorted(watch.pane_map.items())]
+        watch.pane_map = dict(enumerate(commands[amount:] + commands[:amount]))
+        watch.adjust_pane_sizes()
+    return _rotate
+
+
 def cmd_back_output(watch, key):
     """
     Puts the selected pane in "browsing mode" if it's not already, and shows
@@ -1014,6 +1026,8 @@ KEYBINDINGS = {
     ord('?'): (cmd_show_help, 'show help'),
     ord('g'): (cmd_toggle_graph, 'toggle graph mode'),
     ord('o'): (cmd_cycle_layout, 'cycle layouts (vertical <-> horizontal)'),
+    ord('['): (cmd_rotate_panes(1), 'rotate panes left/up'),
+    ord(']'): (cmd_rotate_panes(-1), 'rotate panes right/down'),
     ord('<'): (cmd_back_output, 'go to output of previous command run'),
     ord('>'): (cmd_forward_output, 'go to next of previous command run'),
     ord('n'): (cmd_current_output, 'stop browsing command output'),
