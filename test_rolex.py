@@ -79,6 +79,16 @@ def test_command_set_running():
     eq_(True, cmd.active)
 
 
+def test_command_get_output():
+    cmd = Command('echo "test"', 1, Mock())
+    eq_("test\n", cmd._get_output())
+
+
+def test_command_get_output_error():
+    cmd = Command('false', 1, Mock())
+    assert cmd._get_output().startswith("Error running 'false'")
+
+
 @patch('rolex.time')
 @patch('rolex.curses')
 def test_pad_draw_header(curses_mock, time_mock):
