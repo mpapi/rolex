@@ -10,7 +10,7 @@ env: dev_requirements.txt
 	touch env
 
 lint: env
-	flake8 rolex *.py
+	flake8 *.py
 
 test: env
 	nosetests
