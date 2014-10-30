@@ -11,11 +11,11 @@ from difflib import SequenceMatcher
 from Queue import Queue, Empty
 from subprocess import check_output, CalledProcessError, Popen, PIPE
 from threading import Event, Thread
+import argparse
 import curses
 import curses.textpad
 import os
 import re
-import sys
 import time
 
 
@@ -1069,25 +1069,6 @@ def redraw(seconds=1):
         time.sleep(seconds)
 
 
-def _parse_commands(args):
-    """
-    Parses commands from a list of arguments. Yields strings containing
-    commands between "--".
-
-    >>> list(_parse_commands(['date', '-Is', '--', 'ntpdate']))
-    ['date -Is', 'ntpdate']
-    """
-    command = []
-    for part in args:
-        if command and part == '--':
-            yield ' '.join(command)
-            command = []
-        else:
-            command.append(part)
-    if command:
-        yield ' '.join(command)
-
-
 def _read_config(conf_file, running):
     parser = RawConfigParser()
     parser.read([conf_file])
@@ -1106,6 +1087,17 @@ def _read_config(conf_file, running):
                    graph=parser.getboolean(section, 'graph'))
 
 
+def _parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--conf', type=str,
+                        help='config file to restore from')
+    parser.add_argument('-n', '--interval', type=int, default=2,
+                        help='seconds to wait between updates')
+    parser.add_argument('command', type=str, nargs='*',
+                        help='initial command to run')
+    return parser.parse_args()
+
+
 def main():
     queue = Queue()
 
@@ -1114,18 +1106,18 @@ def main():
 
     pane_overrides = None
 
-    command_args = list(_parse_commands(sys.argv[1:]))
-    if len(command_args) == 1 and command_args[0].endswith('.conf'):
+    args = _parse_args()
+    if args.conf:
         pane_overrides = []
         commands = []
-        for pane in _read_config(command_args[0], running):
+        for pane in _read_config(args.conf, running):
             pane_overrides.append(pane)
             commands.append(Command(pane['command'], pane['period'], running))
     else:
-        commands = [Command(c, 2, running) for c in command_args]
-        if not commands:
+        if not args.command:
             print 'Nothing to run.'
             return
+        commands = [Command(' '.join(args.command), args.interval, running)]
         commands[0].selected = True
 
     with Screen.configure(COLORS) as screen:
