@@ -345,6 +345,18 @@ class Pane(object):
                     self.pad.addstr(2 + lineno, 1 + pos, substr,
                                     curses.color_pair(5) | curses.A_BOLD)
 
+    def refresh(self, command):
+        """
+        Redraws the header and output area for `command`, but does not commit.
+        """
+        self.draw_header(command)
+        if not command.content:
+            self.draw_wait()
+        else:
+            self.draw_output(command.content[-1].splitlines(),
+                             diff_base=command.diff_base_output,
+                             history=command.content)
+
     def commit(self):
         """
         Writes the changes to the pad out to the window, but doesn't redraw.
@@ -696,13 +708,7 @@ class Watch(object):
                                                      self.screen.height,
                                                      self.screen.width)
             pane.resize(new_height, new_width)
-            pane.draw_header(command)
-            if not command.content:
-                pane.draw_wait()
-            else:
-                pane.draw_output(command.content[-1].splitlines(),
-                                 diff_base=command.diff_base_output,
-                                 history=command.content)
+            pane.refresh(command)
             pane.commit()
 
     def __iter__(self):
@@ -800,7 +806,7 @@ def cmd_edit_pattern(watch, key):
     pane, command = watch.selected
     new_pattern = watch.screen.prompt_user('Pattern: ', pane.pattern or '')
     pane.pattern = new_pattern or None
-    pane.draw_header(command)
+    pane.refresh(command)
     pane.commit()
 
 
