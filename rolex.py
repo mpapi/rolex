@@ -971,7 +971,7 @@ def cmd_write_config(watch, key):
     for pane, command in watch:
         section = 'pane %d' % pane.index
         config.add_section(section)
-        for field in ['show_diffs', 'graph', 'height', 'width']:
+        for field in ['show_diffs', 'graph', 'pattern', 'height', 'width']:
             value = getattr(pane, field)
             if value is not None:
                 config.set(section, field, value)
