@@ -81,12 +81,12 @@ def test_command_set_running():
 
 def test_command_get_output():
     cmd = Command('echo "test"', 1, Mock())
-    eq_("test\n", cmd._get_output())
+    eq_(("test\n", True), cmd._get_output())
 
 
 def test_command_get_output_error():
     cmd = Command('false', 1, Mock())
-    assert cmd._get_output().startswith("Error running 'false'")
+    assert cmd._get_output()[0].startswith("Error running 'false'")
 
 
 @patch('rolex.time')

@@ -37,6 +37,7 @@ class Command(object):
         self.runner = None
         self.terminated = False
         self.scheduled_run = Event()
+        self.on_error = None
 
         self.active = True
         self.latch = Event()
@@ -149,15 +150,17 @@ class Command(object):
 
     def _get_output(self):
         """
-        Runs the command, returning its output.
+        Runs the command, returning its output and True.
 
-        If the command failed to run, returns an error message instead.
+        If the command failed to run, returns an error message and False
+        instead.
         """
         try:
             with open(os.devnull, 'w') as devnull:
-                return check_output(self.command, stderr=devnull, shell=True)
+                output = check_output(self.command, stderr=devnull, shell=True)
+                return output, True
         except CalledProcessError, e:
-            return "Error running '%s':\n\n%s" % (self.command, e)
+            return "Error running '%s':\n\n%s" % (self.command, e), False
 
     def _record_output(self, output):
         # TODO diff against last, store time and data
@@ -183,7 +186,17 @@ class Command(object):
                 break
             now = time.time()
             if self.wait_until_next_run(now):
-                output = self._get_output()
+                output, success = self._get_output()
+                if not success and self.on_error is not None:
+                    if self.on_error[0] == 'exit':
+                        queue.put(('exit', self))
+                    elif self.on_error[0] == 'pause':
+                        queue.put(('pause', self))
+                    elif self.on_error[0] == 'exec':
+                        Popen(self.on_error[1], shell=True)
+                    elif self.on_error[0] == 'exec_and_pause':
+                        queue.put(('pause', self))
+                        Popen(self.on_error[1], shell=True)
                 self.last_update = time.ctime()
                 self._record_output(output)
                 queue.put(('output', (self, output)))
@@ -272,6 +285,11 @@ class Pane(object):
         if self.browsing:
             self.pad.addstr(0, pos, 'browse', curses.color_pair(1))
             pos += len('browse') + 1
+
+        if command.on_error is not None:
+            msg = 'err:' + command.on_error[0]
+            self.pad.addstr(0, pos, msg, curses.color_pair(1))
+            pos += len(msg) + 1
 
         # Add markers for other states.
         if self.graph:
@@ -986,6 +1004,32 @@ def cmd_write_config(watch, key):
     watch.screen.message_user('Wrote conf to %s' % conf_path)
 
 
+def cmd_exit_on_error(watch, key):
+    """
+    Toggles exit-on-error for the selected pane
+    """
+    pane, command = watch.selected
+    if command.on_error is not None and command.on_error[0] == 'exit':
+        command.on_error = None
+    else:
+        command.on_error = ('exit',)
+    pane.draw_header(command)
+    pane.commit()
+
+
+def cmd_pause_on_error(watch, key):
+    """
+    Toggles pause-on-error for the selected pane
+    """
+    pane, command = watch.selected
+    if command.on_error is not None and command.on_error[0] == 'pause':
+        command.on_error = None
+    else:
+        command.on_error = ('pause',)
+    pane.draw_header(command)
+    pane.commit()
+
+
 LAYOUTS = [
     EvenVerticalLayout(),
     EvenHorizontalLayout()
@@ -1038,6 +1082,8 @@ KEYBINDINGS = {
     ord('>'): (cmd_forward_output, 'go to next of previous command run'),
     ord('n'): (cmd_current_output, 'stop browsing command output'),
     ord('w'): (cmd_write_config, 'write current layout to a config file'),
+    ord('e'): (cmd_exit_on_error, 'set exit-on-error for the active pane'),
+    ord('#'): (cmd_pause_on_error, 'set pause-on-error for the active pane')
 }
 
 
@@ -1163,6 +1209,14 @@ def main():
                     break
                 curses.doupdate()
                 continue
+            elif tag == 'pause':
+                for pane, command in watch:
+                    command.set_running(False)
+                    pane.draw_header(command)
+                    pane.commit()
+                continue
+            elif tag == 'exit':
+                break
 
             command, output = data
             pane = watch.pane_for_command(command)
