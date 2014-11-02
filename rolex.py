@@ -38,6 +38,7 @@ class Command(object):
         self.terminated = False
         self.scheduled_run = Event()
         self.on_error = None
+        self.on_change = None
 
         self.active = True
         self.latch = Event()
@@ -163,16 +164,29 @@ class Command(object):
             return "Error running '%s':\n\n%s" % (self.command, e), False
 
     def _record_output(self, output):
+        changed = self.content and (output != self.content[-1])
         # TODO diff against last, store time and data
         self.content.append(output)
         if len(self.content) > 60:
             self.content.pop(0)
+        return changed
 
     def _compute_next_run(self, now):
         next_run = self.next_run
         while next_run < now:
             next_run += max(1, self.period)
         return next_run
+
+    def _handle_result(self, handler, queue):
+        if handler[0] == 'exit':
+            queue.put(('exit', self))
+        elif handler[0] == 'pause':
+            queue.put(('pause', self))
+        elif handler[0] == 'exec':
+            Popen(handler[1], shell=True)
+        elif handler[0] == 'exec_and_pause':
+            queue.put(('pause', self))
+            Popen(handler[1], shell=True)
 
     def _run(self, queue):
         """
@@ -188,17 +202,11 @@ class Command(object):
             if self.wait_until_next_run(now):
                 output, success = self._get_output()
                 if not success and self.on_error is not None:
-                    if self.on_error[0] == 'exit':
-                        queue.put(('exit', self))
-                    elif self.on_error[0] == 'pause':
-                        queue.put(('pause', self))
-                    elif self.on_error[0] == 'exec':
-                        Popen(self.on_error[1], shell=True)
-                    elif self.on_error[0] == 'exec_and_pause':
-                        queue.put(('pause', self))
-                        Popen(self.on_error[1], shell=True)
+                    self._handle_result(self.on_error, queue)
                 self.last_update = time.ctime()
-                self._record_output(output)
+                changed = self._record_output(output)
+                if changed and self.on_change is not None:
+                    self._handle_result(self.on_change, queue)
                 queue.put(('output', (self, output)))
                 self.scheduled_run.clear()
 
@@ -288,6 +296,11 @@ class Pane(object):
 
         if command.on_error is not None:
             msg = 'err:' + command.on_error[0]
+            self.pad.addstr(0, pos, msg, curses.color_pair(1))
+            pos += len(msg) + 1
+
+        if command.on_change is not None:
+            msg = 'chg:' + command.on_change[0]
             self.pad.addstr(0, pos, msg, curses.color_pair(1))
             pos += len(msg) + 1
 
@@ -1006,7 +1019,7 @@ def cmd_write_config(watch, key):
 
 def cmd_exit_on_error(watch, key):
     """
-    Toggles exit-on-error for the selected pane
+    Toggles exit-on-error for the selected pane.
     """
     pane, command = watch.selected
     if command.on_error is not None and command.on_error[0] == 'exit':
@@ -1019,13 +1032,39 @@ def cmd_exit_on_error(watch, key):
 
 def cmd_pause_on_error(watch, key):
     """
-    Toggles pause-on-error for the selected pane
+    Toggles pause-on-error for the selected pane.
     """
     pane, command = watch.selected
     if command.on_error is not None and command.on_error[0] == 'pause':
         command.on_error = None
     else:
         command.on_error = ('pause',)
+    pane.draw_header(command)
+    pane.commit()
+
+
+def cmd_exit_on_change(watch, key):
+    """
+    Toggles exit-on-change for the selected pane.
+    """
+    pane, command = watch.selected
+    if command.on_change is not None and command.on_change[0] == 'exit':
+        command.on_change = None
+    else:
+        command.on_change = ('exit',)
+    pane.draw_header(command)
+    pane.commit()
+
+
+def cmd_pause_on_change(watch, key):
+    """
+    Toggles pause-on-change for the selected pane
+    """
+    pane, command = watch.selected
+    if command.on_change is not None and command.on_change[0] == 'pause':
+        command.on_change = None
+    else:
+        command.on_change = ('pause',)
     pane.draw_header(command)
     pane.commit()
 
@@ -1083,7 +1122,9 @@ KEYBINDINGS = {
     ord('n'): (cmd_current_output, 'stop browsing command output'),
     ord('w'): (cmd_write_config, 'write current layout to a config file'),
     ord('e'): (cmd_exit_on_error, 'set exit-on-error for the active pane'),
-    ord('#'): (cmd_pause_on_error, 'set pause-on-error for the active pane')
+    ord('#'): (cmd_pause_on_error, 'set pause-on-error for the active pane'),
+    ord('E'): (cmd_exit_on_change, 'set exit-on-change for the active pane'),
+    ord('$'): (cmd_pause_on_change, 'set pause-on-change for the active pane'),
 }
 
 
