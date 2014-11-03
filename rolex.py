@@ -1047,6 +1047,22 @@ def cmd_pause_on_error(watch, key):
     pane.commit()
 
 
+def cmd_exec_on_error(watch, key):
+    """
+    Sets up exec-on-error for the selected pane.
+    """
+    pane, command = watch.selected
+    run = watch.screen.prompt_user('Run: ', '')
+    if not run:
+        command.on_error = None
+        return
+    should_pause = watch.screen.prompt_user('Pause? [y/n] ', 'y')
+    should_pause = should_pause.lower() == 'y'
+    command.on_error = ('exec_and_pause' if should_pause else 'exec', run)
+    pane.draw_header(command)
+    pane.commit()
+
+
 def cmd_exit_on_change(watch, key):
     """
     Toggles exit-on-change for the selected pane.
@@ -1069,6 +1085,22 @@ def cmd_pause_on_change(watch, key):
         command.on_change = None
     else:
         command.on_change = ('pause',)
+    pane.draw_header(command)
+    pane.commit()
+
+
+def cmd_exec_on_change(watch, key):
+    """
+    Sets up exec-on-change for the selected pane.
+    """
+    pane, command = watch.selected
+    run = watch.screen.prompt_user('Run: ', '')
+    if not run:
+        command.on_change = None
+        return
+    should_pause = watch.screen.prompt_user('Pause? [y/n] ', 'y')
+    should_pause = should_pause.lower() == 'y'
+    command.on_change = ('exec_and_pause' if should_pause else 'exec', run)
     pane.draw_header(command)
     pane.commit()
 
@@ -1125,10 +1157,12 @@ KEYBINDINGS = {
     ord('>'): (cmd_forward_output, 'go to next of previous command run'),
     ord('n'): (cmd_current_output, 'stop browsing command output'),
     ord('w'): (cmd_write_config, 'write current layout to a config file'),
-    ord('e'): (cmd_exit_on_error, 'set exit-on-error for the active pane'),
-    ord('#'): (cmd_pause_on_error, 'set pause-on-error for the active pane'),
-    ord('E'): (cmd_exit_on_change, 'set exit-on-change for the active pane'),
-    ord('$'): (cmd_pause_on_change, 'set pause-on-change for the active pane'),
+    'M-e': (cmd_exit_on_error, 'set exit-on-error for the active pane'),
+    'M-p': (cmd_pause_on_error, 'set pause-on-error for the active pane'),
+    'M-x': (cmd_exec_on_error, 'set execon-error for the active pane'),
+    'M-E': (cmd_exit_on_change, 'set exit-on-change for the active pane'),
+    'M-P': (cmd_pause_on_change, 'set pause-on-change for the active pane'),
+    'M-X': (cmd_exec_on_change, 'set exec-on-change for the active pane'),
 }
 
 
