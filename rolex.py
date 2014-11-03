@@ -557,12 +557,16 @@ class Screen(object):
         This is intended to run in a separate greenlet/thread/process.
         """
         self._screen.nodelay(1)
+        esc = False
         while True:
             ch = self._screen.getch()
             if ch == -1:
                 time.sleep(0.1)
+            elif ch == 27:
+                esc = True
             else:
-                queue.put(('key', ch))
+                queue.put(('key', ch if not esc else 'M-' + chr(ch)))
+                esc = False
 
     def update_size(self):
         """
