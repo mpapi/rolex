@@ -755,15 +755,14 @@ class Watch(object):
         for i, command in sorted(self.pane_map.iteritems()):
             yield self.panes[i], command
 
-    def pane_for_command(self, command):
+    def panes_for_command(self, command):
         """
-        Looks up the Pane object to which the Command `command` currently
+        Generates the Pane objects to which the Command `command` currently
         renders.
         """
         for i, c in self.pane_map.iteritems():
             if c == command:
-                return self.panes[i]
-        return None
+                yield self.panes[i]
 
     @property
     def selected(self):
@@ -882,6 +881,17 @@ def cmd_kill_command(watch, key):
     watch.remove_pane(pane)
     if watch.remove_command(command):
         return True
+    watch.adjust_pane_sizes()
+
+
+def cmd_mirror_command(watch, key):
+    """
+    Opens a new pane, the display of which is linked to the output of the
+    selected pane's command.
+    """
+    pane, command = watch.selected
+    watch.panes.append(Pane(len(watch.commands), 1, 1, pane.layout))
+    watch.pane_map[len(watch.pane_map)] = command
     watch.adjust_pane_sizes()
 
 
@@ -1165,6 +1175,7 @@ KEYBINDINGS = {
     'M-E': (cmd_exit_on_change, 'set exit-on-change for the active pane'),
     'M-P': (cmd_pause_on_change, 'set pause-on-change for the active pane'),
     'M-X': (cmd_exec_on_change, 'set exec-on-change for the active pane'),
+    ord('M'): (cmd_mirror_command, 'mirror the current command in a new pane'),
 }
 
 
@@ -1299,18 +1310,15 @@ def main():
                 break
 
             command, output = data
-            pane = watch.pane_for_command(command)
-            if not pane:
-                continue
+            for pane in list(watch.panes_for_command(command)):
+                if pane.browsing:
+                    continue
 
-            if pane.browsing:
-                continue
-
-            pane.draw_header(command)
-            pane.draw_output(output.splitlines(),
-                             diff_base=command.diff_base_output,
-                             history=command.content)
-            pane.commit()
+                pane.draw_header(command)
+                pane.draw_output(output.splitlines(),
+                                 diff_base=command.diff_base_output,
+                                 history=command.content)
+                pane.commit()
 
 
 if __name__ == '__main__':
