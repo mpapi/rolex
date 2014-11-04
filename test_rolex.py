@@ -126,18 +126,18 @@ def test_watch_set_selected(curses_mock):
     cmd2 = Command('test2', 2, Mock())
     watch = Watch(Mock(height=20, width=80), Mock(), [cmd1, cmd2], Mock())
 
-    eq_(False, cmd1.selected)
-    eq_(False, cmd2.selected)
+    eq_(True, watch.panes[0].selected)
+    eq_(False, watch.panes[1].selected)
 
     watch.set_selected_from_key(ord('1'))
 
-    eq_(True, cmd1.selected)
-    eq_(False, cmd2.selected)
+    eq_(True, watch.panes[0].selected)
+    eq_(False, watch.panes[1].selected)
 
     watch.set_selected_from_key(ord('2'))
 
-    eq_(False, cmd1.selected)
-    eq_(True, cmd2.selected)
+    eq_(False, watch.panes[0].selected)
+    eq_(True, watch.panes[1].selected)
 
 
 def test_read_config():

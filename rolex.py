@@ -27,7 +27,6 @@ class Command(object):
     """
     def __init__(self, command, period, running):
         self.command = command
-        self.selected = False
         self.period = period
         self.running = running
         self.content = []
@@ -243,6 +242,7 @@ class Pane(object):
         self.graph = False
         self.browsing = False
         self.browsing_at = -1
+        self.selected = False
 
         self.layout = layout
         self.resize(height, width)
@@ -283,7 +283,7 @@ class Pane(object):
         attrs = curses.color_pair(3)
         if not command.running.is_set() or not command.active:
             attrs = curses.color_pair(4) | curses.A_BOLD
-        if command.selected:
+        if self.selected:
             attrs |= curses.A_UNDERLINE
 
         # Write the command.
@@ -651,6 +651,7 @@ class Watch(object):
         self.layout = LAYOUTS[0]
 
         self.panes = [Pane(i, 1, 1, self.layout) for i in range(len(commands))]
+        self.panes[0].selected = True
 
         # This maps pane index to the command to show in that pane, so we can
         # rearrange them.
@@ -682,14 +683,14 @@ class Watch(object):
         So, if `key` is the keycode for "2", the command currently in the
         second pane from the top is selected (and all others are deselected).
         """
-        for i, c in self.pane_map.iteritems():
-            c.selected = i == int(chr(key)) - 1
+        for i, pane in enumerate(self.panes):
+            pane.selected = i == int(chr(key)) - 1
 
     def add_pane_and_command(self, command, period):
         """
         Adds `command` to run every `period` seconds in a new pane.
         """
-        pane = Pane(len(self.commands), 1, 1, self.layout)
+        pane = Pane(len(self.panes), 1, 1, self.layout)
         self.panes.append(pane)
 
         command = Command(command, period, self.running)
@@ -711,8 +712,8 @@ class Watch(object):
         """
         command.stop_runner()
         self.commands.remove(command)
-        if not any(c.selected for c in self.commands) and self.commands:
-            self.commands[0].selected = True
+        if self.selected[0].selected and self.panes:
+            self.panes[0].selected = True
         self.pane_map = dict(enumerate(self.commands))
         return len(self.commands) == 0
 
@@ -738,7 +739,7 @@ class Watch(object):
             return
 
         for pane, command in self:
-            new_height, new_width = self.layout.size(len(self.commands),
+            new_height, new_width = self.layout.size(len(self.panes),
                                                      pane.index,
                                                      self.screen.height,
                                                      self.screen.width)
@@ -771,7 +772,7 @@ class Watch(object):
         command that runs in that pane), or None.
         """
         for pane, command in self:
-            if command.selected:
+            if pane.selected:
                 return pane, command
 
 
@@ -1006,12 +1007,13 @@ def cmd_write_config(watch, key):
     for pane, command in watch:
         section = 'pane %d' % pane.index
         config.add_section(section)
-        for field in ['show_diffs', 'graph', 'pattern', 'height', 'width']:
+        for field in ['show_diffs', 'graph', 'pattern',
+                      'height', 'width', 'selected']:
             value = getattr(pane, field)
             if value is not None:
                 config.set(section, field, value)
         config.set(section, 'layout', pane.layout.__class__.__name__)
-        for field in ['command', 'period', 'selected', 'active']:
+        for field in ['command', 'period', 'active']:
             config.set(section, field, getattr(command, field))
 
     conf_path = 'rolex.%s.conf' % datetime.now().isoformat()
@@ -1249,7 +1251,6 @@ def main():
             print 'Nothing to run.'
             return
         commands = [Command(' '.join(args.command), args.interval, running)]
-        commands[0].selected = True
 
     with Screen.configure(COLORS) as screen:
         screen.clear_and_refresh()
@@ -1261,8 +1262,8 @@ def main():
             if pane_overrides is not None:
                 assert 0 <= i < len(pane_overrides)
                 overrides = pane_overrides[i]
-                command.selected = overrides['selected']
                 command.active = overrides['active']
+                pane.selected = overrides['selected']
                 pane.show_diffs = overrides['show_diffs']
                 pane.pattern = overrides['pattern']
                 pane.graph = overrides['graph']
