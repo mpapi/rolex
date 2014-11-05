@@ -1033,88 +1033,39 @@ def cmd_write_config(watch, key):
     watch.screen.message_user('Wrote conf to %s' % conf_path)
 
 
-def cmd_exit_on_error(watch, key):
+def cmd_on_event(attr, action):
     """
-    Toggles exit-on-error for the selected pane.
+    Sets up exit/pause/etc.-on-* for the selected pane.
     """
-    pane, command = watch.selected
-    if command.on_error is not None and command.on_error[0] == 'exit':
-        command.on_error = None
-    else:
-        command.on_error = ('exit',)
-    pane.draw_header(command)
-    pane.commit()
+    def _on_error(watch, key):
+        pane, command = watch.selected
+        value = getattr(command, attr)
+        if value is not None and value[0] == action:
+            setattr(command, attr, None)
+        else:
+            setattr(command, attr, (action,))
+        pane.draw_header(command)
+        pane.commit()
+    return _on_error
 
 
-def cmd_pause_on_error(watch, key):
+def cmd_exec_on_event(attr):
     """
-    Toggles pause-on-error for the selected pane.
+    Sets up exec-on-* (or exec and pause-on-*) for the selected pane.
     """
-    pane, command = watch.selected
-    if command.on_error is not None and command.on_error[0] == 'pause':
-        command.on_error = None
-    else:
-        command.on_error = ('pause',)
-    pane.draw_header(command)
-    pane.commit()
-
-
-def cmd_exec_on_error(watch, key):
-    """
-    Sets up exec-on-error for the selected pane.
-    """
-    pane, command = watch.selected
-    run = watch.screen.prompt_user('Run: ', '')
-    if not run:
-        command.on_error = None
-        return
-    should_pause = watch.screen.prompt_user('Pause? [y/n] ', 'y')
-    should_pause = should_pause.lower() == 'y'
-    command.on_error = ('exec_and_pause' if should_pause else 'exec', run)
-    pane.draw_header(command)
-    pane.commit()
-
-
-def cmd_exit_on_change(watch, key):
-    """
-    Toggles exit-on-change for the selected pane.
-    """
-    pane, command = watch.selected
-    if command.on_change is not None and command.on_change[0] == 'exit':
-        command.on_change = None
-    else:
-        command.on_change = ('exit',)
-    pane.draw_header(command)
-    pane.commit()
-
-
-def cmd_pause_on_change(watch, key):
-    """
-    Toggles pause-on-change for the selected pane
-    """
-    pane, command = watch.selected
-    if command.on_change is not None and command.on_change[0] == 'pause':
-        command.on_change = None
-    else:
-        command.on_change = ('pause',)
-    pane.draw_header(command)
-    pane.commit()
-
-
-def cmd_exec_on_change(watch, key):
-    """
-    Sets up exec-on-change for the selected pane.
-    """
-    pane, command = watch.selected
-    run = watch.screen.prompt_user('Run: ', '')
-    if not run:
-        command.on_change = None
-        return
-    should_pause = watch.screen.prompt_user('Pause? [y/n] ', 'y')
-    should_pause = should_pause.lower() == 'y'
-    command.on_change = ('exec_and_pause' if should_pause else 'exec', run)
-    pane.draw_header(command)
-    pane.commit()
+    def _exec(watch, key):
+        pane, command = watch.selected
+        run = watch.screen.prompt_user('Run: ', '')
+        if not run:
+            setattr(command, attr, None)
+            return
+        should_pause = watch.screen.prompt_user('Pause? [y/n] ', 'y')
+        should_pause = should_pause.lower() == 'y'
+        setattr(command, attr,
+                ('exec_and_pause' if should_pause else 'exec', run))
+        pane.draw_header(command)
+        pane.commit()
+    return _exec
 
 
 LAYOUTS = [
@@ -1169,12 +1120,18 @@ KEYBINDINGS = {
     ord('>'): (cmd_forward_output, 'go to next of previous command run'),
     ord('n'): (cmd_current_output, 'stop browsing command output'),
     ord('w'): (cmd_write_config, 'write current layout to a config file'),
-    'M-e': (cmd_exit_on_error, 'set exit-on-error for the active pane'),
-    'M-p': (cmd_pause_on_error, 'set pause-on-error for the active pane'),
-    'M-x': (cmd_exec_on_error, 'set execon-error for the active pane'),
-    'M-E': (cmd_exit_on_change, 'set exit-on-change for the active pane'),
-    'M-P': (cmd_pause_on_change, 'set pause-on-change for the active pane'),
-    'M-X': (cmd_exec_on_change, 'set exec-on-change for the active pane'),
+    'M-e': (cmd_on_event('on_error', 'exit'),
+            'set exit-on-error for the active pane'),
+    'M-p': (cmd_on_event('on_error', 'pause'),
+            'set pause-on-error for the active pane'),
+    'M-x': (cmd_exec_on_event('on_error'),
+            'set exec-on-error for the active pane'),
+    'M-E': (cmd_on_event('on_change', 'exit'),
+            'set exit-on-change for the active pane'),
+    'M-P': (cmd_on_event('on_change', 'pause'),
+            'set pause-on-change for the active pane'),
+    'M-X': (cmd_exec_on_event('on_change'),
+            'set exec-on-change for the active pane'),
     ord('M'): (cmd_mirror_command, 'mirror the current command in a new pane'),
 }
 
