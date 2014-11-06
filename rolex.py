@@ -774,6 +774,24 @@ class Watch(object):
             if pane.selected:
                 return pane, command
 
+    @property
+    def selected_command(self):
+        """
+        Returns just the command part of `self.selected`.
+        """
+        _, command = self.selected
+        return command
+
+    @property
+    def selected_and_mirrors(self):
+        """
+        Returns a list of pairs of (pane, command) for the selected pane and
+        any panes containing commands mirrored from the selected one.
+        """
+        selected_pane, selected_command = self.selected
+        return [(pane, command) for pane, command in self
+                if pane is selected_pane or command is selected_command]
+
 
 def cmd_select(watch, key):
     """
@@ -803,8 +821,9 @@ def cmd_toggle_pause_one(watch, key):
     """
     pane, command = watch.selected
     command.toggle_running()
-    pane.draw_header(command)
-    pane.commit()
+    for pane, command in watch.selected_and_mirrors:
+        pane.draw_header(command)
+        pane.commit()
 
 
 def cmd_period_change(amount):
@@ -813,10 +832,10 @@ def cmd_period_change(amount):
     adjusting it by `amount`.
     """
     def _cmd(watch, key):
-        pane, command = watch.selected
-        command.change_period(amount)
-        pane.draw_header(command)
-        pane.commit()
+        watch.selected_command.change_period(amount)
+        for pane, command in watch.selected_and_mirrors:
+            pane.draw_header(command)
+            pane.commit()
     return _cmd
 
 
