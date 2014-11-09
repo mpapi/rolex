@@ -171,6 +171,35 @@ def test_pad_draw_header_with_pattern(curses_mock, time_mock):
     ])
 
 
+@patch('rolex.time')
+@patch('rolex.curses')
+def test_pad_draw_header_with_diff(curses_mock, time_mock):
+    time_mock.ctime.return_value = ctime = 'Tue Mar 25 21:00:00 2014'
+    layout = EvenVerticalLayout()
+    command = Command('test', 1, Mock())
+    pane = Pane(0, 25, 80, layout)
+    pane.show_diffs = True
+    pane.draw_header(command)
+    curses_mock.newpad().addstr.assert_has_calls([
+        call(0, 0, ANY, ANY),
+        call(0, 2, '1', ANY),
+        call(0, 4, 'test', curses_mock.color_pair(3)),
+        call(0, 9, 'diff last', curses_mock.color_pair(1)),
+        call(0, 55, ctime)
+    ])
+    curses_mock.reset()
+
+    command.mark = 'test'
+    pane.draw_header(command)
+    curses_mock.newpad().addstr.assert_has_calls([
+        call(0, 0, ANY, ANY),
+        call(0, 2, '1', ANY),
+        call(0, 4, 'test', curses_mock.color_pair(3)),
+        call(0, 9, 'diff mark', curses_mock.color_pair(1)),
+        call(0, 55, ctime)
+    ])
+
+
 @patch('rolex.curses')
 def test_pad_draw_wait(curses_mock):
     layout = EvenVerticalLayout()
