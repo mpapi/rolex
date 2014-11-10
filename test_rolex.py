@@ -8,7 +8,7 @@ from mock import Mock, patch, call, ANY
 from nose.tools import eq_
 
 from rolex import Command, Pane, Watch, get_matches, get_diffs, _read_config
-from rolex import EvenVerticalLayout
+from rolex import EvenVerticalLayout, EvenHorizontalLayout
 
 
 def _tempdir():
@@ -207,6 +207,33 @@ def test_pad_draw_wait(curses_mock):
     curses_mock.newpad().addstr.assert_has_calls([
         call(i, 1, ANY) for i in range(2, 13)
     ])
+
+
+def test_layout_size():
+    cases = [
+        (EvenHorizontalLayout(), (200, 40), (5, 0, 200, 200)),
+        (EvenHorizontalLayout(), (200, 40), (5, 1, 200, 200)),
+        (EvenHorizontalLayout(), (200, 40), (5, 2, 200, 200)),
+        (EvenHorizontalLayout(), (200, 40), (5, 3, 200, 200)),
+        (EvenHorizontalLayout(), (200, 40), (5, 4, 200, 200)),
+        (EvenHorizontalLayout(), (100, 40), (5, 0, 100, 200)),
+        (EvenHorizontalLayout(), (200, 39), (5, 0, 200, 199)),
+        (EvenHorizontalLayout(), (199, 40), (5, 0, 199, 200)),
+        (EvenVerticalLayout(), (40, 200), (5, 0, 200, 200)),
+        (EvenVerticalLayout(), (40, 200), (5, 1, 200, 200)),
+        (EvenVerticalLayout(), (40, 200), (5, 2, 200, 200)),
+        (EvenVerticalLayout(), (40, 200), (5, 3, 200, 200)),
+        (EvenVerticalLayout(), (40, 200), (5, 4, 200, 200)),
+        (EvenVerticalLayout(), (20, 200), (5, 0, 100, 200)),
+        (EvenVerticalLayout(), (40, 199), (5, 0, 200, 199)),
+        (EvenVerticalLayout(), (39, 200), (5, 0, 199, 200)),
+    ]
+    for layout, expected, params in cases:
+        yield _verify_layout_size, layout, expected, params
+
+
+def _verify_layout_size(layout, expected, params):
+    eq_(expected, layout.size(*params))
 
 
 def test_get_matches():
