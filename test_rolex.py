@@ -236,6 +236,37 @@ def _verify_layout_size(layout, expected, params):
     eq_(expected, layout.size(*params))
 
 
+def test_layout_commit():
+    cases = [
+        (EvenHorizontalLayout(),
+         (0, 0, 0, 0, 200, 198),
+         (0, 200, 200)),
+        (EvenHorizontalLayout(),
+         (0, 0, 0, 200, 200, 398),
+         (1, 200, 200)),
+        (EvenHorizontalLayout(),
+         (0, 0, 0, 400, 200, 598),
+         (2, 200, 200)),
+        (EvenVerticalLayout(),
+         (0, 0, 0, 0, 198, 200),
+         (0, 200, 200)),
+        (EvenVerticalLayout(),
+         (0, 0, 200, 0, 398, 200),
+         (1, 200, 200)),
+        (EvenVerticalLayout(),
+         (0, 0, 400, 0, 598, 200),
+         (2, 200, 200)),
+    ]
+    for layout, expected, params in cases:
+        yield _verify_layout_commit, layout, expected, params
+
+
+def _verify_layout_commit(layout, expected, params):
+    pad_mock = Mock()
+    eq_(None, layout.commit(pad_mock, *params))
+    pad_mock.noutrefresh.assert_called_once_with(*expected)
+
+
 def test_get_matches():
     eq_([(4, '12')], list(get_matches(r'\d+', 'test12test')))
 
