@@ -700,21 +700,21 @@ class Watch(object):
 
     def remove_pane(self, pane):
         """
-        Removes the Pane object `pane`, so that it no longer renders.
+        Removes the Pane object `pane`, so that it no longer renders, and its
+        associated command, so that it no longer runs.
         """
+        command = self.pane_map[pane.index]
+
         self.panes.remove(pane)
         for i, p in enumerate(self.panes):
             p.index = i
 
-    def remove_command(self, command):
-        """
-        Removes the Command object `command`, so that it no longer runs.
-        """
         command.stop_runner()
         self.commands.remove(command)
-        if self.selected[0].selected and self.panes:
-            self.panes[0].selected = True
         self.pane_map = dict(enumerate(self.commands))
+
+        if not self.selected and self.panes:
+            self.panes[0].selected = True
         return len(self.commands) == 0
 
     def set_layout(self, new_layout):
@@ -896,9 +896,8 @@ def cmd_kill_command(watch, key):
     """
     Kills the selected pane and stops running the command it contains.
     """
-    pane, command = watch.selected
-    watch.remove_pane(pane)
-    if watch.remove_command(command):
+    pane, _ = watch.selected
+    if watch.remove_pane(pane):
         return True
     watch.adjust_pane_sizes()
 
