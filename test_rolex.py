@@ -320,6 +320,16 @@ def test_watch_remove_pane(curses_mock):
     eq_(True, watch.panes[0].selected)
 
 
+@patch('rolex.curses')
+def test_watch_panes_for_command(curses_mock):
+    cmd1 = Command('test1', 1, Mock())
+    cmd2 = Command('test2', 2, Mock())
+    watch = Watch(Mock(height=20, width=80), Mock(), [cmd1, cmd2], Mock())
+
+    eq_([watch.panes[0]], list(watch.panes_for_command(cmd1)))
+    eq_([watch.panes[1]], list(watch.panes_for_command(cmd2)))
+
+
 def test_read_config():
     temp = _tempdir()
     conf = os.path.join(temp, 'test.conf')
