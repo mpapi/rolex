@@ -9,6 +9,7 @@ from nose.tools import eq_
 
 from rolex import Command, Pane, Watch, get_matches, get_diffs, _read_config
 from rolex import EvenVerticalLayout, EvenHorizontalLayout
+import rolex
 
 
 def _tempdir():
@@ -342,6 +343,22 @@ def test_watch_selected(curses_mock):
     watch.panes[0].selected = False
     watch.panes[1].selected = True
     eq_((watch.panes[1], cmd2), watch.selected)
+
+
+@patch('rolex.curses')
+def test_watch_selected_and_mirrors(curses_mock):
+    cmd1 = Command('test1', 1, Mock())
+    cmd2 = Command('test2', 2, Mock())
+    watch = Watch(Mock(height=20, width=80), Mock(), [cmd1, cmd2], Mock())
+
+    eq_(True, watch.panes[0].selected)
+    eq_([(watch.panes[0], cmd1)], list(watch.selected_and_mirrors))
+
+    rolex.cmd_mirror_command(watch, Mock())
+
+    eq_(True, watch.panes[0].selected)
+    eq_([(watch.panes[0], cmd1),
+         (watch.panes[2], cmd1)], list(watch.selected_and_mirrors))
 
 
 def test_read_config():
