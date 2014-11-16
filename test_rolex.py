@@ -346,6 +346,21 @@ def test_watch_selected(curses_mock):
 
 
 @patch('rolex.curses')
+def test_watch_selected_with_mirroring(curses_mock):
+    cmd1 = Command('test1', 1, Mock())
+    watch = Watch(Mock(height=20, width=80), Mock(), [cmd1], Mock())
+
+    eq_(True, watch.panes[0].selected)
+    eq_((watch.panes[0], cmd1), watch.selected)
+
+    rolex.cmd_mirror_command(watch, Mock())
+
+    watch.panes[0].selected = False
+    watch.panes[1].selected = True
+    eq_((watch.panes[1], cmd1), watch.selected)
+
+
+@patch('rolex.curses')
 def test_watch_selected_and_mirrors(curses_mock):
     cmd1 = Command('test1', 1, Mock())
     cmd2 = Command('test2', 2, Mock())
