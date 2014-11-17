@@ -704,13 +704,18 @@ class Watch(object):
         associated command, so that it no longer runs.
         """
         command = self.pane_map[pane.index]
+        mirrored = any(c == command
+                       for index, c in self.pane_map.items()
+                       if index != pane.index)
 
         self.panes.remove(pane)
         for i, p in enumerate(self.panes):
             p.index = i
 
-        command.stop_runner()
-        self.commands.remove(command)
+        if not mirrored:
+            command.stop_runner()
+            self.commands.remove(command)
+
         self.pane_map = dict(enumerate(self.commands))
 
         if not self.selected and self.panes:
