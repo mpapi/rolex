@@ -427,3 +427,18 @@ def test_read_config():
              pattern=None,
              layout='EvenVerticalLayout',
              graph=False), parsed[0])
+
+
+@patch('rolex.curses')
+def test_cmd_select(curses_mock):
+    cmd1 = Command('test1', 1, Mock())
+    cmd2 = Command('test2', 2, Mock())
+    watch = Watch(Mock(height=20, width=80), Mock(), [cmd1, cmd2], Mock())
+
+    eq_(True, watch.panes[0].selected)
+    eq_(False, watch.panes[1].selected)
+
+    rolex.cmd_select(watch, ord('2'))
+
+    eq_(False, watch.panes[0].selected)
+    eq_(True, watch.panes[1].selected)
