@@ -442,3 +442,26 @@ def test_cmd_select(curses_mock):
 
     eq_(False, watch.panes[0].selected)
     eq_(True, watch.panes[1].selected)
+
+
+@patch('rolex.curses')
+def test_cmd_toggle_pause(curses_mock):
+    cmd1 = Command('test1', 1, Mock())
+    cmd2 = Command('test2', 2, Mock())
+    watch = Watch(Mock(height=20, width=80), Mock(), [cmd1, cmd2], Mock())
+
+    eq_(True, all(cmd.active for cmd in watch.commands))
+
+    rolex.cmd_toggle_pause(watch, None)
+
+    eq_(False, any(cmd.active for cmd in watch.commands))
+
+    cmd1.active = True
+    rolex.cmd_toggle_pause(watch, None)
+
+    eq_(True, any(cmd.active for cmd in watch.commands))
+
+    cmd1.active = False
+    rolex.cmd_toggle_pause(watch, None)
+
+    eq_(True, any(cmd.active for cmd in watch.commands))
