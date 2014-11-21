@@ -486,3 +486,16 @@ def test_cmd_toggle_pause_one(curses_mock):
 
     rolex.cmd_toggle_pause_one(watch, None)
     eq_([False, True], [cmd.active for cmd in watch.commands])
+
+
+@patch('rolex.curses')
+def test_cmd_period_change(curses_mock):
+    cmd1 = Command('test1', 1, Mock())
+    cmd2 = Command('test2', 2, Mock())
+    watch = Watch(Mock(height=20, width=80), Mock(), [cmd1, cmd2], Mock())
+
+    eq_([1, 2], [c.period for c in watch.commands])
+
+    rolex.cmd_period_change(10)(watch, None)
+
+    eq_([11, 2], [c.period for c in watch.commands])
