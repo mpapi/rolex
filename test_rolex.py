@@ -499,3 +499,23 @@ def test_cmd_period_change(curses_mock):
     rolex.cmd_period_change(10)(watch, None)
 
     eq_([11, 2], [c.period for c in watch.commands])
+
+
+@patch('rolex.curses')
+def test_cmd_toggle_diffs(curses_mock):
+    cmd1 = Command('test1', 1, Mock())
+    cmd2 = Command('test2', 2, Mock())
+    watch = Watch(Mock(height=20, width=80), Mock(), [cmd1, cmd2], Mock())
+
+    cmd1.mark = Mock()
+    watch.panes[0].show_diffs = True
+
+    rolex.cmd_toggle_diffs(watch, None)
+
+    eq_(None, cmd1.mark)
+    eq_(False, watch.panes[0].show_diffs)
+
+    rolex.cmd_toggle_diffs(watch, None)
+
+    eq_(None, cmd1.mark)
+    eq_(True, watch.panes[0].show_diffs)
