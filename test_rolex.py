@@ -519,3 +519,17 @@ def test_cmd_toggle_diffs(curses_mock):
 
     eq_(None, cmd1.mark)
     eq_(True, watch.panes[0].show_diffs)
+
+
+@patch('rolex.curses')
+def test_cmd_mark_diff(curses_mock):
+    cmd1 = Command('test1', 1, Mock())
+    cmd2 = Command('test2', 2, Mock())
+    watch = Watch(Mock(height=20, width=80), Mock(), [cmd1, cmd2], Mock())
+
+    eq_(None, cmd1.mark)
+
+    cmd1.content = ['test\noutput\n']
+    rolex.cmd_mark_diff(watch, None)
+
+    eq_(['test', 'output'], cmd1.mark)
