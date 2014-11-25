@@ -546,3 +546,19 @@ def test_cmd_kill_command(curses_mock):
     eq_([cmd2], watch.commands)
     eq_(cmd2, watch.pane_map[0])
     eq_(True, watch.panes[0].selected)
+
+
+@patch('rolex.curses')
+def test_cmd_add_command(curses_mock):
+    screen_mock = Mock(height=20, width=80)
+    screen_mock.prompt_user.side_effect = iter(['test', '3'])
+
+    cmd1 = Command('test1', 1, Mock())
+    cmd2 = Command('test2', 2, Mock())
+    watch = Watch(screen_mock, Mock(), [cmd1, cmd2], Mock())
+
+    eq_(2, len(watch.commands))
+    eq_(2, len(watch.panes))
+    rolex.cmd_add_command(watch, None)
+    eq_(3, len(watch.commands))
+    eq_(3, len(watch.panes))
