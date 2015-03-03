@@ -1168,7 +1168,8 @@ def generate_help_text():
     print >> help_text
     for key, (func, desc) in sorted(KEYBINDINGS.iteritems()):
         if desc:
-            print >> help_text, "  '%s'  %s" % (chr(key), desc)
+            key_str = key if isinstance(key, basestring) else chr(key)
+            print >> help_text, "  '%s'  %s" % (key_str, desc)
     return help_text.getvalue()
 
 
