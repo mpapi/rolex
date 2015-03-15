@@ -1,8 +1,4 @@
 #!/usr/bin/env python
-
-import locale
-locale.setlocale(locale.LC_ALL, "")
-
 from ConfigParser import RawConfigParser
 from contextlib import contextmanager
 from cStringIO import StringIO
@@ -17,6 +13,9 @@ import curses.textpad
 import os
 import re
 import time
+
+import locale
+locale.setlocale(locale.LC_ALL, "")
 
 
 class Command(object):
