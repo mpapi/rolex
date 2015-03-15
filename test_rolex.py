@@ -5,7 +5,7 @@ import tempfile
 import textwrap
 
 from mock import Mock, patch, call, ANY
-from nose.tools import eq_
+from nose.tools import eq_, ok_
 
 from rolex import Command, Pane, Watch, get_matches, get_diffs, _read_config
 from rolex import EvenVerticalLayout, EvenHorizontalLayout
@@ -562,3 +562,8 @@ def test_cmd_add_command(curses_mock):
     rolex.cmd_add_command(watch, None)
     eq_(3, len(watch.commands))
     eq_(3, len(watch.panes))
+
+
+def test_generate_help_text_returns():
+    # A little spartan, but verifies that generate_help_text returns something
+    ok_(rolex.generate_help_text())
